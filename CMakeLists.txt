@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 11)
 #set(CMAKE_CXX_EXTENSIONS OFF)  
 
 # set static
-set(CMAKE_EXE_LINKER_FLAGS "-static")
+#set(CMAKE_EXE_LINKER_FLAGS "-static")
 
 #set debug
 set(CMAKE_BUILD_TYPE Debug)
@@ -28,11 +28,14 @@ target_include_directories(stream_program PRIVATE
     ${CMAKE_SOURCE_DIR}/include)
 
 #lib path
-link_directories(${CMAKE_SOURCE_DIR}/lib)
+link_directories(/home/Gene/ffmpeg-linux-6.0/lib)
 
 # libraries
-target_link_libraries(stream_program PRIVATE 
-    avcodec
-    avformat
-    avutil
-    swscale)
+target_link_libraries(stream_program PRIVATE
+avformat
+avcodec
+avutil
+swscale
+)
+
+message("Library path: ${CMAKE_SOURCE_DIR}/lib")
