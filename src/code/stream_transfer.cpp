@@ -16,15 +16,41 @@ int CStreamTransfer::init()
 void printf_stream_info(const FileFormat& file_format)
 {
     std::cout<<"format name:" << file_format.iformat_name << std::endl;
+    std::cout<<"nb_streams:" << file_format.nb_streams << std::endl;
+    if (file_format.duration > 0)
+    {
+        std::cout<<"duration(s):" << file_format.duration/(1000*1000)<< std::endl;
+    }
+    else{
+        std::cout<<"detect duration failed"<< std::endl;
+    }
+    if (file_format.bit_rate > 0)
+    {
+        std::cout<<"bit_rate:" << file_format.bit_rate<< std::endl;
+    }
+    else{
+        std::cout<<"detect bit_rate failed"<< std::endl;
+    }
 
-    std::cout<<"stream number:" << file_format.stream_nubmer << std::endl;
+    if (file_format.start_time > 0)
+    {
+        std::cout<<"start_time:" << file_format.time_base<< std::endl;
+    }
+    else{
+        std::cout<<"detect start_time failed"<< std::endl;
+    }
+    
+
+
+
+
     if (file_format.video_codec_id != AV_CODEC_ID_NONE)
     {
         std::cout<<"*****include video:"<< std::endl;
         const AVCodec *codec = avcodec_find_decoder(file_format.video_codec_id);
         if (codec)
         {
-            std::cout << "video codec" << codec->name <<std::endl;
+            std::cout << "video codec id:" << file_format.video_codec_id << ",name:" << codec->name <<std::endl;
         }
         else
         {
@@ -34,7 +60,8 @@ void printf_stream_info(const FileFormat& file_format)
     if (file_format.audio_codec_id != AV_CODEC_ID_NONE)
     {
         std::cout<<"*****include audio:" << std::endl;
-        
+        const AVCodec *codec = avcodec_find_decoder(file_format.audio_codec_id);
+        std::cout << "audio codec id:" << file_format.audio_codec_id << ",name:" << codec->name <<std::endl;
     }
 }
 void printf_ffmepg_error(int error_code, const std::string& fun_name)
@@ -73,7 +100,7 @@ int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& vi
     // [AVDictionary **] set thread number,probesize, analyzeduration,fpsprobesize.
     // av_dict_set and av_dict_free 
     ret = avformat_find_stream_info(fmt_ctx, NULL); 
-    if (ret < 0) {
+    if (ret < 0 || fmt_ctx == NULL) {
         printf_ffmepg_error(ret, "avformat_find_stream_info");
         return -1;
     }
@@ -98,6 +125,11 @@ int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& vi
         }
     }
 
+    file_format.nb_streams = fmt_ctx->nb_streams;
+    file_format.duration = fmt_ctx->duration;
+    file_format.bit_rate = fmt_ctx->bit_rate;
+    file_format.time_base = fmt_ctx->time_base;
+
     // 4. 遍历所有流
     for (int i = 0; i < fmt_ctx->nb_streams; i++) {
         AVStream *stream = fmt_ctx->streams[i];
@@ -111,17 +143,11 @@ int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& vi
             {
                 if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
                 {
-                    codec = avcodec_find_decoder(stream->codecpar->codec_id);
-                    printf("video codec: %s\n", codec->name);
-                
-                    if (stream->codecpar->codec_id == AV_CODEC_ID_H264) 
-                    {
-                        printf("it is h264 codec\n");
-                    }
+                    file_format.video_codec_id = stream->codecpar->codec_id;
                 }
                 else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) 
                 {
-
+                    file_format.audio_codec_id = stream->codecpar->codec_id;  
                 }
             }
             else
@@ -133,6 +159,7 @@ int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& vi
 
     // 5. 释放资源
     avformat_close_input(&fmt_ctx);
+    printf_stream_info(file_format);
     std::cout<<"analyze finished"<<std::endl;
     return 1;
 }
