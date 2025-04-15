@@ -2,12 +2,142 @@
 
 int CStreamTransfer::init()
 {
+    if (is_init_)
+    {
+        return 1;
+    }
     //av_register_all();
     printf("compile version: %d.%d.%d\n", LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO);
     printf("run version: %s\n", av_version_info());
-
-     return 1;
+    is_init_ = true;
+    return 1;
 }
+
+void printf_stream_info(const FileFormat& file_format)
+{
+    std::cout<<"format name:" << file_format.iformat_name << std::endl;
+
+    std::cout<<"stream number:" << file_format.stream_nubmer << std::endl;
+    if (file_format.video_codec_id != AV_CODEC_ID_NONE)
+    {
+        std::cout<<"*****include video:"<< std::endl;
+        const AVCodec *codec = avcodec_find_decoder(file_format.video_codec_id);
+        if (codec)
+        {
+            std::cout << "video codec" << codec->name <<std::endl;
+        }
+        else
+        {
+            std::cout << "unknown video codec name" <<std::endl;
+        }
+    }
+    if (file_format.audio_codec_id != AV_CODEC_ID_NONE)
+    {
+        std::cout<<"*****include audio:" << std::endl;
+        
+    }
+}
+void printf_ffmepg_error(int error_code, const std::string& fun_name)
+{
+    char errbuf[AV_ERROR_MAX_STRING_SIZE] = {0};
+    av_strerror(error_code, errbuf, sizeof(errbuf));
+
+    char finalbuf[256] = {0};
+    snprintf(finalbuf, sizeof(finalbuf), "%s faied, error code [%d-%s]", fun_name.c_str(), error_code, errbuf);
+
+    std::cout << finalbuf << std::endl;
+}
+int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& video_path)
+{
+    std::cout<<"start analyze:"<< video_path << std::endl;
+    init();
+   
+    AVFormatContext *fmt_ctx = NULL;
+    const AVCodec *codec = NULL;
+    
+    // open the url/file, didn't read to the buffer
+    // [url] file or rtsp/http url
+    // [AVInputFormat *] set format/by url suffix/detect by ffmepg/.
+    // priority: AVInputFormat* > url > ffmepg detect
+    // if we set AVInputFormat*, ffmepg will not detect it. 
+    // if we didn't set, we set url suffix, fffmpeg will use url to try at first.
+    // [AVDictionary **]: some opition, timeout, buffer size. 
+    // default time out is Infinite waiting. default buffer size is 32KB
+    int ret = avformat_open_input(&fmt_ctx, video_path.c_str(), NULL, NULL);
+    if (ret < 0) {
+        printf_ffmepg_error(ret, "avformat_open_input");
+        return -1;
+    }
+
+    // read some streas and detect stream information:codec_id, resolution, video, audio, timestamp, etc
+    // [AVDictionary **] set thread number,probesize, analyzeduration,fpsprobesize.
+    // av_dict_set and av_dict_free 
+    ret = avformat_find_stream_info(fmt_ctx, NULL); 
+    if (ret < 0) {
+        printf_ffmepg_error(ret, "avformat_find_stream_info");
+        return -1;
+    }
+
+    // 4. check format
+    if (!fmt_ctx->iformat) {
+        file_format.iformat_name = "no format";
+    } 
+    else {
+        if (strcmp(fmt_ctx->iformat->name, "h264") == 0
+        || strcmp(fmt_ctx->iformat->name, "hevc") == 0
+        || strcmp(fmt_ctx->iformat->name, "mpegvideo") == 0
+        || strcmp(fmt_ctx->iformat->name, "vp8") == 0
+        || strcmp(fmt_ctx->iformat->name, "vp9") == 0
+        || strcmp(fmt_ctx->iformat->name, "aac") == 0)
+        {
+            file_format.iformat_name = "raw data " + std::string(fmt_ctx->iformat->name);
+        }
+        else
+        {
+            file_format.iformat_name = "format " + std::string(fmt_ctx->iformat->name);
+        }
+    }
+
+    // 4. 遍历所有流
+    for (int i = 0; i < fmt_ctx->nb_streams; i++) {
+        AVStream *stream = fmt_ctx->streams[i];
+        if (stream == NULL)
+        {
+            std::cout<<"stream is null"<<std::endl;        
+        }
+        else
+        {
+            if (stream->codecpar != NULL)
+            {
+                if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
+                {
+                    codec = avcodec_find_decoder(stream->codecpar->codec_id);
+                    printf("video codec: %s\n", codec->name);
+                
+                    if (stream->codecpar->codec_id == AV_CODEC_ID_H264) 
+                    {
+                        printf("it is h264 codec\n");
+                    }
+                }
+                else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) 
+                {
+
+                }
+            }
+            else
+            {
+                std::cout<<"stream->codecpar is null"<<std::endl; 
+            }
+        }
+    }
+
+    // 5. 释放资源
+    avformat_close_input(&fmt_ctx);
+    std::cout<<"analyze finished"<<std::endl;
+    return 1;
+}
+
+
 int CStreamTransfer::format_to_mp4(const std::string& out, const std::string& video_path)
 {
     init();
@@ -99,85 +229,6 @@ int CStreamTransfer::format_yuv_to_rgb(const std::string& out, const std::string
 // mp4 to h264
 int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string& video_path)
 {
-    return 1;
-}
-
-int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& video_path)
-{
-    std::cout<<"start analyze:"<< video_path << std::endl;
-    init();
-   
-    AVFormatContext *fmt_ctx = NULL;
-    const AVCodec *codec = NULL;
-    
-    // 1. 打开输入文件
-    int ret = avformat_open_input(&fmt_ctx, video_path.c_str(), NULL, NULL);
-    if (ret < 0) {
-        fprintf(stderr, "openf faied%d, %s\n", ret, video_path.c_str());
-
-        char errbuf[AV_ERROR_MAX_STRING_SIZE];
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        
-        return -1;
-    }
-
-    // 2. 获取流信息
-    if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
-        fprintf(stderr, "无法获取流信息\n");
-        return -1;
-    }
-
-    // 4. 检查输入格式
-    if (!fmt_ctx->iformat) {
-        std::cout << "iformat is null, no format" << std::endl;
-    } 
-    else {
-        if (strcmp(fmt_ctx->iformat->name, "h264") == 0)
-        {
-            std::cout << "raw data" << fmt_ctx->iformat->name << std::endl;
-        }
-        else
-        {
-            std::cout << "format: " << fmt_ctx->iformat->name << std::endl;
-        }
-    }
-
-    // 4. 遍历所有流
-    for (int i = 0; i < fmt_ctx->nb_streams; i++) {
-        AVStream *stream = fmt_ctx->streams[i];
-        if (stream == NULL)
-        {
-            std::cout<<"stream is null"<<std::endl;        
-        }
-        else
-        {
-            if (stream->codecpar != NULL)
-            {
-                if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
-                {
-                    codec = avcodec_find_decoder(stream->codecpar->codec_id);
-                    printf("video codec: %s\n", codec->name);
-                
-                    if (stream->codecpar->codec_id == AV_CODEC_ID_H264) 
-                    {
-                        printf("it is h264 codec\n");
-                    }
-                }
-                else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) 
-                {
-
-                }
-            }
-            else
-            {
-                std::cout<<"stream->codecpar is null"<<std::endl; 
-            }
-        }
-    }
-
-    // 5. 释放资源
-    avformat_close_input(&fmt_ctx);
-    std::cout<<"analyze finished"<<std::endl;
     return 1;
 }
 

@@ -3,13 +3,19 @@
 
 struct FileFormat
 {
-
+    std::string iformat_name; 
+    int stream_nubmer = 0;
+    AVCodecID  video_codec_id = AV_CODEC_ID_NONE; // video codec id, AV_CODEC_ID_NONE means no video stream
+    AVCodecID audio_codec_id = AV_CODEC_ID_NONE; // audio codec id, AV_CODEC_ID_NONE means no audio stream
 };
 
 class CStreamTransfer
 {
     public:
         int init();
+
+        // analyze the file
+        int analyze_file(FileFormat& file_format, const std::string& video_path);
 
         // h264 raw data to others
         int format_to_mp4(const std::string& out, const std::string& video_path);
@@ -26,7 +32,9 @@ class CStreamTransfer
         // mp4 to h264
         int format_mp4_to_raw(const std::string& out, const std::string& video_path);
 
-        // analyze the file
-        int analyze_file(FileFormat& file_format, const std::string& video_path);
+        
     private:
+        bool is_init_ = false;
+
+        //std::atomic<bool> is_init_ = false;
 };
