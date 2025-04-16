@@ -5,11 +5,16 @@ struct FileFormat
 {
     std::string iformat_name; 
     int nb_streams = 0;
+
+
     AVCodecID  video_codec_id = AV_CODEC_ID_NONE; // video codec id, AV_CODEC_ID_NONE means no video stream
     AVCodecID audio_codec_id = AV_CODEC_ID_NONE; // audio codec id, AV_CODEC_ID_NONE means no audio stream
     int64_t duration = AV_NOPTS_VALUE; // microseconds
     int64_t bit_rate = 0;
-    int64_t start_time = 0;
+    int64_t start_time = AV_NOPTS_VALUE;
+
+    AVStream* video_stream = NULL;
+    AVStream* audio_stream = NULL;
 };
 
 class CStreamTransfer
