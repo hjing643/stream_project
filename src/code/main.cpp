@@ -10,7 +10,7 @@ int main(int argc, char* argv[])
 
     std::string fullPath = argv[1];
 
-    std::cout << "function type: 0-analyze_file, 1-deep analyze_file, 2-format_to_mp4" << std::endl;
+    std::cout << "function type: 0-analyze_file, 1-deep analyze_file, 2-format_raw_to_mp4" << std::endl;
     int function_type = 0;
     std::cin >> function_type;
 
@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
         case 2:
         {
             std::string file_output = "../output/mp4.mp4";
-            stream_transfer.format_to_mp4(file_output, fullPath);       
+            stream_transfer.format_raw_to_mp4(file_output, fullPath);       
         }
             break;
         default:

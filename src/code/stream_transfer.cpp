@@ -299,7 +299,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 }
 
 
-int CStreamTransfer::format_to_mp4(const std::string& out, const std::string& video_path)
+int CStreamTransfer::format_raw_to_mp4(const std::string& out, const std::string& video_path)
 {
     init();
 
@@ -334,95 +334,112 @@ int CStreamTransfer::format_to_mp4(const std::string& out, const std::string& vi
         return ret;
     }
 
+    std::cout << "out format codec_tag:" << output_ctx->oformat->codec_tag << std::endl;
+
     // 假设输入只有一个视频流
-    AVStream* first_out_stream;
-    for (unsigned int i = 0; i < input_ctx->nb_streams; i++) {
-        AVStream* in_stream = input_ctx->streams[i];
-        AVCodecParameters* in_codecpar = in_stream->codecpar;
+    do
+    {
+        AVStream* out_stream = NULL;
+        for (unsigned int i = 0; i < input_ctx->nb_streams; i++) 
+        {
+            AVStream* in_stream = input_ctx->streams[i];
 
-        if (in_codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
-            continue;
+            if (in_stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
+                continue;
+            }
+
+            // 创建输出流
+            out_stream = avformat_new_stream(output_ctx, NULL);
+            if (!out_stream) {
+                std::cerr << "Failed allocating output stream\n";
+                ret = AVERROR_UNKNOWN;
+                break;
+            }
+
+            // 复制编解码器参数
+            if ((ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar)) < 0) {
+                std::cerr << "Failed to copy codec parameters\n";
+                break;
+            }
+
+            // 对于 H.264 视频，需要设置一些 MP4 特定的参数
+            out_stream->codecpar->codec_tag = av_codec_get_tag(output_ctx->oformat->codec_tag, out_stream->codecpar->codec_id);
+            if (out_stream->codecpar->codec_tag == 0) {
+                std::cerr << "Could not find codec tag for codec id " << out_stream->codecpar->codec_id << "\n";
+                ret = AVERROR_UNKNOWN;
+                break;
+            }
         }
-
-        // 创建输出流
-        first_out_stream = avformat_new_stream(output_ctx, NULL);
-        if (!first_out_stream) {
-            std::cerr << "Failed allocating output stream\n";
-            ret = AVERROR_UNKNOWN;
-            goto end;
-        }
-
-        // 复制编解码器参数
-        if ((ret = avcodec_parameters_copy(first_out_stream->codecpar, in_codecpar)) < 0) {
-            std::cerr << "Failed to copy codec parameters\n";
-            goto end;
-        }
-
-        // 对于 H.264 视频，需要设置一些 MP4 特定的参数
-        first_out_stream->codecpar->codec_tag = av_codec_get_tag(output_ctx->oformat->codec_tag, first_out_stream->codecpar->codec_id);
-        if (first_out_stream->codecpar->codec_tag == 0) {
-            std::cerr << "Could not find codec tag for codec id " << first_out_stream->codecpar->codec_id << "\n";
-            ret = AVERROR_UNKNOWN;
-            goto end;
-        }
-    }
-
-    // 如果没有找到视频流
-    if (!first_out_stream) {
-        std::cerr << "Could not find video stream in input\n";
-        ret = AVERROR_UNKNOWN;
-        goto end;
-    }
-
-    // 打开输出文件
-    if (!(output_ctx->oformat->flags & AVFMT_NOFILE)) {
-        if ((ret = avio_open(&output_ctx->pb, output_filename, AVIO_FLAG_WRITE)) < 0) {
-            std::cerr << "Could not open output file '" << output_filename << "'\n";
-            goto end;
-        }
-    }
-
-    // 写入文件头
-    if ((ret = avformat_write_header(output_ctx, NULL)) < 0) {
-        std::cerr << "Error occurred when opening output file\n";
-        goto end;
-    }
-
-    // 复制数据包
-    AVPacket pkt;
-    while (1) {
-        AVStream* in_stream, *out_stream;
-
-        ret = av_read_frame(input_ctx, &pkt);
-        if (ret < 0) {
-            break; // 读取结束或出错
-        }
-
-        in_stream = input_ctx->streams[pkt.stream_index];
-        out_stream = output_ctx->streams[pkt.stream_index];
-
-        // 转换 PTS/DTS
-        pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, 
-                                  static_cast<AVRounding>(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-        pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, 
-                                  static_cast<AVRounding>(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-        pkt.duration = av_rescale_q(pkt.duration, in_stream->time_base, out_stream->time_base);
-        pkt.pos = -1;
-
-        // 写入数据包
-        if ((ret = av_interleaved_write_frame(output_ctx, &pkt)) < 0) {
-            std::cerr << "Error muxing packet\n";
-            av_packet_unref(&pkt);
+        if (ret < 0)
+        {
             break;
         }
 
-        av_packet_unref(&pkt);
-    }
+        // 如果没有找到视频流
+        if (!out_stream) {
+            std::cerr << "Could not find video stream in input\n";
+            ret = AVERROR_UNKNOWN;
+            break;
+        }
 
-    // 写入文件尾
-    av_write_trailer(output_ctx);
+        // 打开输出文件
+        if (!(output_ctx->oformat->flags & AVFMT_NOFILE)) {
+            if ((ret = avio_open(&output_ctx->pb, output_filename, AVIO_FLAG_WRITE)) < 0) {
+                std::cerr << "Could not open output file '" << output_filename << "'\n";
+                break;
+            }
+        }
 
-end:
+        // 写入文件头
+        if ((ret = avformat_write_header(output_ctx, NULL)) < 0) {
+            std::cerr << "Error occurred when opening output file\n";
+            break;
+        }
+
+        // 复制数据包
+        AVPacket pkt;
+        int64_t frame_index = 0;  // 第 N 帧（从 0 开始）
+        while (1) {
+            ret = av_read_frame(input_ctx, &pkt);
+            if (ret < 0) {
+                break; // 读取结束或出错
+            }
+
+            AVStream* in_stream = input_ctx->streams[pkt.stream_index];
+            if (in_stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO) {
+                continue;
+            }
+
+            //out_stream = output_ctx->streams[0]; // we only have video stream in output
+            
+            // 转换 PTS/DTS
+            // 裸流一般没有time_base，初始化一个我想要的
+            AVRational mp4_time_base = (AVRational){1, 90000};
+            output_ctx->streams[0]->r_frame_rate = (AVRational){25, 1};
+            output_ctx->streams[0]->avg_frame_rate = (AVRational){25, 1};
+            output_ctx->streams[0]->time_base = mp4_time_base;
+            int frame_duration = 90000 / 25;   // 每帧 = 3600 时间单位
+
+            pkt.pts = (frame_index * frame_duration);
+            pkt.dts = pkt.pts;
+            pkt.duration = frame_duration;
+            pkt.pos = -1;
+            ++frame_index;
+            // 写入数据包
+            if ((ret = av_interleaved_write_frame(output_ctx, &pkt)) < 0) {
+                std::cerr << "Error muxing packet\n";
+                av_packet_unref(&pkt);
+                break;
+            }
+
+            av_packet_unref(&pkt);
+        }
+
+        // 写入文件尾
+        av_write_trailer(output_ctx);
+    }while(0);
+
+
     // 清理
     if (output_ctx && !(output_ctx->oformat->flags & AVFMT_NOFILE)) {
         avio_closep(&output_ctx->pb);
@@ -431,12 +448,11 @@ end:
     avformat_close_input(&input_ctx);
 
     if (ret < 0 && ret != AVERROR_EOF) {
-        std::cerr << "Error occurred: " << ret << "\n";
+        std::cerr << "Error occurred: " << ret << std::endl;
         return 1;
     }
 
-    std::cout << "Successfully converted " << input_filename << " to " << output_filename << "\n";
-
+    std::cout << "Successfully converted " << input_filename << " to " << output_filename << std::endl;
     return 1;
 }
 
