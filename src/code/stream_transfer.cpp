@@ -81,8 +81,11 @@ void printf_stream_info(const FileFormat& file_format)
                     << ",longname:" << codec->long_name <<std::endl;
             std::cout << "video resolution:" << file_format.video_stream->codecpar->width  << "*" 
                 << file_format.video_stream->codecpar->height <<std::endl;
+
+            ;
             std::cout << "pix format:" << file_format.video_stream->codecpar->format
-                << ",name:" << transfer_video_pix_format(file_format.video_stream->codecpar->format, 0) << std::endl; 
+                << ",name:" << av_get_pix_fmt_name(static_cast<AVPixelFormat>(file_format.video_stream->codecpar->format)) 
+                << ",color_range: " << (int)file_format.video_stream->codecpar->color_range << std::endl; 
             // time base, Number of units between two frames  file_format.video_stream->time_base.den / r_frame_rate
             std::cout << "time_base:" << file_format.video_stream->time_base.num
                 << "/" << file_format.video_stream->time_base.den << std::endl;
@@ -133,7 +136,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
     init();
    
     FileFormat file_format;
-    std::cout<<"file path*"<< video_path << std::endl;
+    std::cout<<"file path:"<< video_path << std::endl;
     AVFormatContext *fmt_ctx = NULL;
     const AVCodec *codec = NULL;
     
@@ -187,7 +190,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
     file_format.bit_rate = fmt_ctx->bit_rate;
     file_format.start_time = fmt_ctx->start_time;
 
-    // 4. 遍历所有流
+    int video_stream_index = -1;
     for (int i = 0; i < fmt_ctx->nb_streams; i++) {
         AVStream *stream = fmt_ctx->streams[i];
         if (stream == NULL)
@@ -200,6 +203,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
             {
                 if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
                 {
+                    video_stream_index = i;
                     file_format.video_stream = stream;
                 }
                 else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) 
@@ -217,7 +221,74 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 
     if(deep)
     {
-        // read all frame
+        do{
+            // read all frame
+            if (video_stream_index < 0)
+            {
+                break;
+            }
+            AVCodecParameters* codec_parameter = fmt_ctx->streams[video_stream_index]->codecpar;
+            const AVCodec* codec = avcodec_find_decoder(codec_parameter->codec_id);
+            if (!codec) {
+                std::cerr << "Unsupported codec" << std::endl;
+                return -1;
+            }
+
+            AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
+            avcodec_parameters_to_context(codec_ctx, codec_parameter);
+            ret = avcodec_open2(codec_ctx, codec, NULL);
+            if (ret < 0)
+            {
+                printf_ffmepg_error(ret, "avcodec_open2");
+                break;
+            }
+
+            AVPacket* pkt = av_packet_alloc();
+            AVFrame* frame = av_frame_alloc();
+
+            int index = 0;
+            int max_index = 100;
+            while (av_read_frame(fmt_ctx, pkt) >= 0) 
+            {
+                if (pkt->stream_index == video_stream_index) 
+                {
+                    char finalbuf[256] = {0};
+                    snprintf(finalbuf, sizeof(finalbuf), "%d flag[%d],size[%d],pts[%d],dts[%d],duration[%d],pos[%d]", 
+                    index++,
+                    pkt->flags,
+                    pkt->size,
+                    pkt->pts,
+                    pkt->dts,
+                    pkt->duration,
+                    pkt->pos
+                    );
+                    std::cout << finalbuf << std::endl;    
+                    
+                    /*
+                    avcodec_send_packet(codec_ctx, pkt);
+                    while (avcodec_receive_frame(codec_ctx, frame) == 0) {
+                        char pict_type = av_get_picture_type_char(frame->pict_type);
+                        double pts_sec = frame->pts * av_q2d(fmt_ctx->streams[video_stream_index]->time_base);
+                        std::cout << "Frame: type=" << pict_type
+                                << ", pts=" << pts_sec
+                                << ", size=" << frame->width << "x" << frame->height
+                                << std::endl;
+                    }
+                    */
+                }
+                av_packet_unref(pkt);
+                if (index > max_index)
+                {
+                    break;
+                }
+            }
+
+            av_frame_free(&frame);
+            av_packet_free(&pkt);
+            avcodec_free_context(&codec_ctx);
+
+            
+        }while(0);
     }
     // 5. 释放资源
     avformat_close_input(&fmt_ctx);
