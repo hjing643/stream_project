@@ -23,7 +23,7 @@ class CStreamTransfer
         int init();
 
         // analyze the file
-        int analyze_file(FileFormat& file_format, const std::string& video_path);
+        int analyze_file(const std::string& video_path, bool deep);
 
         // h264 raw data to others
         int format_to_mp4(const std::string& out, const std::string& video_path);

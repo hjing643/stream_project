@@ -127,11 +127,12 @@ void printf_ffmepg_error(int error_code, const std::string& fun_name)
 
     std::cout << finalbuf << std::endl;
 }
-int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& video_path)
+int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 {
     std::cout<<"******************start analyze_file******************"<< std::endl;
     init();
    
+    FileFormat file_format;
     std::cout<<"file path*"<< video_path << std::endl;
     AVFormatContext *fmt_ctx = NULL;
     const AVCodec *codec = NULL;
@@ -214,6 +215,10 @@ int CStreamTransfer::analyze_file(FileFormat& file_format, const std::string& vi
     }
     printf_stream_info(file_format);
 
+    if(deep)
+    {
+        // read all frame
+    }
     // 5. 释放资源
     avformat_close_input(&fmt_ctx);
     std::cout<<"******************analyze_file finished******************"<<std::endl;
