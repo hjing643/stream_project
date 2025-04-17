@@ -264,17 +264,19 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                     );
                     std::cout << finalbuf << std::endl;    
                     
-                    /*
+                    
                     avcodec_send_packet(codec_ctx, pkt);
                     while (avcodec_receive_frame(codec_ctx, frame) == 0) {
                         char pict_type = av_get_picture_type_char(frame->pict_type);
                         double pts_sec = frame->pts * av_q2d(fmt_ctx->streams[video_stream_index]->time_base);
-                        std::cout << "Frame: type=" << pict_type
+                        std::cout << "  Frame: type=" << pict_type
                                 << ", pts=" << pts_sec
                                 << ", size=" << frame->width << "x" << frame->height
                                 << std::endl;
+
+                        av_frame_unref(frame);
                     }
-                    */
+                    
                 }
                 av_packet_unref(pkt);
                 if (index > max_index)
