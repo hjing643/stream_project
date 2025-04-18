@@ -31,11 +31,9 @@ class CStreamTransfer
         int format_to_yuv(const std::string& out, const std::string& video_path);
         int format_yuv_to_rgb(const std::string& out, const std::string& video_path);
 
-        // get the frame
-        int get_first_I_frame(const std::string& out, const std::string& video_path);
-        int get_first_P_frame(const std::string& out, const std::string& video_path);
-        int I_frame_to_yuv(const std::string& out, const std::string& video_path);
-        int P_frame_to_yuv(const std::string& out, const std::string& video_path);
+        // get the frame and write the data to yuv
+        // frame_type: 1-I，2-P,3-B
+        int get_first_frame_to_yuv(const std::string& out, const std::string& video_path, int frme_type);
 
         // mp4 to h264
         int format_mp4_to_raw(const std::string& out, const std::string& video_path);

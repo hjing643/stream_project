@@ -45,6 +45,7 @@ target_link_libraries(stream_program PRIVATE
 /home/Gene/ffmpeg-linux-6.0/lib/libavcodec.a
 /home/Gene/ffmpeg-linux-6.0/lib/libavutil.a
 /home/Gene/ffmpeg-linux-6.0/lib/libvpx.a
+/home/Gene/ffmpeg-linux-6.0/lib/libswscale.a
 /home/Gene/ffmpeg-linux-6.0/lib/libswresample.a
 pthread
 m

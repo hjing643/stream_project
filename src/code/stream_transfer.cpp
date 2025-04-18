@@ -1,17 +1,69 @@
 #include "stream_transfer.h"
 
-int CStreamTransfer::init()
+class CAutoDestroy
 {
-    if (is_init_)
+public:
+    ~CAutoDestroy()
     {
-        return 1;
+        if (input_fmt_ctx_ != NULL)
+        {
+            avformat_close_input(&input_fmt_ctx_);
+            input_fmt_ctx_ = NULL;
+        }
+        if (output_fmt_ctx_ != NULL)
+        {
+            if (!(output_fmt_ctx_->oformat->flags & AVFMT_NOFILE)
+            && output_fmt_ctx_->pb) 
+            {
+                // rtsp pb is not null, but we can't closep
+                avio_closep(&output_fmt_ctx_->pb);
+            }
+            avformat_free_context(output_fmt_ctx_);
+            output_fmt_ctx_ = NULL;
+        }
+        if (codec_ctx_ != NULL)
+        {
+            avcodec_free_context(&codec_ctx_);
+            codec_ctx_ = NULL;
+        }
+        if (packet_ != NULL)
+        {
+            av_packet_free(&packet_);
+            packet_ = NULL;
+        }
+        if (frame_ != NULL)
+        {
+            av_frame_free(&frame_);
+            frame_ = NULL;
+        }
     }
-    //av_register_all();
-    printf("compile version: %d.%d.%d\n", LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO);
-    printf("run version: %s\n", av_version_info());
-    is_init_ = true;
-    return 1;
-}
+    void set_input_fmt_ctx(AVFormatContext* ptr_in)
+    {
+        input_fmt_ctx_ = ptr_in;
+    }
+    void set_out_fmt_ctx(AVFormatContext* ptr_in)
+    {
+        output_fmt_ctx_ = ptr_in;
+    }
+    void set_codec_context(AVCodecContext* ptr_in)
+    {
+        codec_ctx_ = ptr_in;
+    }
+    void set_packet(AVPacket* ptr_in)
+    {
+        packet_ = ptr_in;
+    }
+    void set_frame(AVFrame* ptr_in)
+    {
+        frame_ = ptr_in;
+    }
+private:
+    AVFormatContext* input_fmt_ctx_ = NULL;  
+    AVFormatContext* output_fmt_ctx_ = NULL;  
+    AVCodecContext* codec_ctx_ = NULL;
+    AVPacket* packet_= NULL; 
+    AVFrame* frame_= NULL; 
+};
 
 // stream_type: 0 video
 std::string transfer_video_pix_format(int pix_format, int stream_type)
@@ -130,9 +182,50 @@ void printf_ffmepg_error(int error_code, const std::string& fun_name)
 
     std::cout << finalbuf << std::endl;
 }
+
+void write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
+{
+    std::cout<<"width:"<< ptr_frame->width << ",height"<<ptr_frame->height<< std::endl;
+
+    FILE* f = fopen(file_path, "wb");
+
+    if (ptr_frame->format == AV_PIX_FMT_YUV420P
+        || ptr_frame->format == AV_PIX_FMT_YUVJ420P)
+        {
+             // Y 
+            for (int i = 0; i < ptr_frame->height; ++i)
+                fwrite(ptr_frame->data[0] + i * ptr_frame->linesize[0], 1, ptr_frame->width, f);
+
+            //  U 
+            for (int i = 0; i < ptr_frame->height / 2; ++i)
+                fwrite(ptr_frame->data[1] + i * ptr_frame->linesize[1], 1, ptr_frame->width / 2, f);
+
+            // V
+            for (int i = 0; i < ptr_frame->height / 2; ++i)
+                fwrite(ptr_frame->data[2] + i * ptr_frame->linesize[2], 1, ptr_frame->width / 2, f);
+        }
+   
+
+    fclose(f);
+}
+
+int CStreamTransfer::init()
+{
+    if (is_init_)
+    {
+        return 1;
+    }
+    //av_register_all();
+    printf("compile version: %d.%d.%d\n", LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO);
+    printf("run version: %s\n", av_version_info());
+    is_init_ = true;
+    return 1;
+}
+
 int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 {
     std::cout<<"******************start analyze_file******************"<< std::endl;
+    CAutoDestroy auto_destroy;
     init();
    
     FileFormat file_format;
@@ -151,17 +244,20 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
     int ret = avformat_open_input(&fmt_ctx, video_path.c_str(), NULL, NULL);
     if (ret < 0) {
         printf_ffmepg_error(ret, "avformat_open_input");
-        avformat_close_input(&fmt_ctx);
+        if (fmt_ctx)
+        {
+            avformat_free_context(fmt_ctx);
+            fmt_ctx = NULL;
+        }
         return -1;
     }
-
+    auto_destroy.set_input_fmt_ctx(fmt_ctx);
     // read some streas and detect stream information:codec_id, resolution, video, audio, timestamp, etc
     // [AVDictionary **] set thread number,probesize, analyzeduration,fpsprobesize.
     // av_dict_set and av_dict_free 
     ret = avformat_find_stream_info(fmt_ctx, NULL); 
-    if (ret < 0 || fmt_ctx == NULL) {
+    if (ret < 0) {
         printf_ffmepg_error(ret, "avformat_find_stream_info");
-        avformat_close_input(&fmt_ctx);
         return -1;
     }
 
@@ -235,6 +331,8 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
             }
 
             AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
+            auto_destroy.set_codec_context(codec_ctx);
+
             avcodec_parameters_to_context(codec_ctx, codec_parameter);
             ret = avcodec_open2(codec_ctx, codec, NULL);
             if (ret < 0)
@@ -245,6 +343,8 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 
             AVPacket* pkt = av_packet_alloc();
             AVFrame* frame = av_frame_alloc();
+            auto_destroy.set_packet(pkt);
+            auto_destroy.set_frame(frame);
 
             int index = 0;
             int max_index = 100;
@@ -253,9 +353,14 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                 if (pkt->stream_index == video_stream_index) 
                 {
                     char finalbuf[256] = {0};
-                    snprintf(finalbuf, sizeof(finalbuf), "%d flag[%d],size[%d],pts[%d],dts[%d],duration[%d],pos[%d]", 
+                    bool idr_mark = false;
+                    if (pkt->flags & AV_PKT_FLAG_KEY)
+                    {
+                        idr_mark = true;
+                    }
+                    snprintf(finalbuf, sizeof(finalbuf), "%d IDR[%d],size[%d],pts[%d],dts[%d],duration[%d],pos[%d]", 
                     index++,
-                    pkt->flags,
+                    idr_mark,
                     pkt->size,
                     pkt->pts,
                     pkt->dts,
@@ -266,7 +371,8 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                     
                     
                     avcodec_send_packet(codec_ctx, pkt);
-                    while (avcodec_receive_frame(codec_ctx, frame) == 0) {
+                    while (avcodec_receive_frame(codec_ctx, frame) == 0) 
+                    {
                         char pict_type = av_get_picture_type_char(frame->pict_type);
                         double pts_sec = frame->pts * av_q2d(fmt_ctx->streams[video_stream_index]->time_base);
                         std::cout << "  Frame: type=" << pict_type
@@ -274,6 +380,11 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                                 << ", size=" << frame->width << "x" << frame->height
                                 << std::endl;
 
+                        if (!(pkt->flags & AV_PKT_FLAG_KEY)
+                        && frame->pict_type == AV_PICTURE_TYPE_I)
+                        {
+                            std::cout << "  non IDR I Frame" << std::endl;
+                        }
                         av_frame_unref(frame);
                     }
                     
@@ -285,15 +396,8 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                 }
             }
 
-            av_frame_free(&frame);
-            av_packet_free(&pkt);
-            avcodec_free_context(&codec_ctx);
-
-            
         }while(0);
     }
-    // 5. 释放资源
-    avformat_close_input(&fmt_ctx);
     std::cout<<"******************analyze_file finished******************"<<std::endl;
     return 1;
 }
@@ -302,7 +406,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 int CStreamTransfer::format_raw_to_mp4(const std::string& out, const std::string& video_path)
 {
     init();
-
+    CAutoDestroy auto_destroy;
 
     const char* input_filename = video_path.c_str();
     const char* output_filename = out.c_str();
@@ -313,28 +417,33 @@ int CStreamTransfer::format_raw_to_mp4(const std::string& out, const std::string
     // open raw h264
     if ((ret = avformat_open_input(&input_ctx, input_filename, NULL, NULL)) < 0) {
         printf_ffmepg_error(ret,"avformat_open_input");
-        avformat_close_input(&input_ctx);        
+        if (input_ctx)
+        {
+            avformat_free_context(input_ctx);
+            input_ctx = NULL;
+        }
         return ret;
     }
 
+    auto_destroy.set_input_fmt_ctx(input_ctx);
     // find stram information
     ret =  avformat_find_stream_info(input_ctx, NULL);
     if (ret < 0) {
         printf_ffmepg_error(ret,"avformat_find_stream_info");
-        avformat_close_input(&input_ctx);
         return ret;
     }
 
     // 创建输出上下文
     AVFormatContext* output_ctx = NULL;
     ret = avformat_alloc_output_context2(&output_ctx, NULL, NULL, output_filename);
-    if (ret < 0) {
+    if (ret < 0) 
+    {
         printf_ffmepg_error(ret, "avformat_alloc_output_context2");
-        avformat_close_input(&input_ctx);
         return ret;
     }
-
-    std::cout << "out format codec_tag:" << output_ctx->oformat->codec_tag << std::endl;
+    auto_destroy.set_out_fmt_ctx(output_ctx);
+    
+    //std::cout << "out format codec_tag:" << output_ctx->oformat->codec_tag << std::endl;
 
     // 假设输入只有一个视频流
     do
@@ -441,11 +550,9 @@ int CStreamTransfer::format_raw_to_mp4(const std::string& out, const std::string
 
 
     // 清理
-    if (output_ctx && !(output_ctx->oformat->flags & AVFMT_NOFILE)) {
-        avio_closep(&output_ctx->pb);
-    }
-    avformat_free_context(output_ctx);
-    avformat_close_input(&input_ctx);
+    
+    //avformat_free_context(output_ctx);
+    ///avformat_close_input(&input_ctx);
 
     if (ret < 0 && ret != AVERROR_EOF) {
         std::cerr << "Error occurred: " << ret << std::endl;
@@ -466,6 +573,90 @@ int CStreamTransfer::format_to_yuv(const std::string& out, const std::string& vi
 }
 int CStreamTransfer::format_yuv_to_rgb(const std::string& out, const std::string& video_path)
 {
+    init();
+    CAutoDestroy auto_destroy1;
+    CAutoDestroy auto_destroy2;
+
+    int width = 1920;
+    int height = 1080;
+    enum AVPixelFormat pix_fmt = AV_PIX_FMT_YUV420P;
+
+    FILE* in = fopen(video_path.c_str(), "rb");
+    if (!in)
+    {
+        std::cout<<"read file failed"<<std::endl;
+        return -1;
+    }
+    AVFrame* yuv_frame = av_frame_alloc();
+    auto_destroy1.set_frame(yuv_frame);
+
+    yuv_frame->format = pix_fmt;
+    yuv_frame->width = width;
+    yuv_frame->height = height;
+    av_frame_get_buffer(yuv_frame, 32); // 分配data
+
+    // 读取 Y 分量
+    for (int i = 0; i < height; i++)
+        fread(yuv_frame->data[0] + i * yuv_frame->linesize[0], 1, width, in);
+
+    // 读取 U 分量
+    for (int i = 0; i < height / 2; i++)
+        fread(yuv_frame->data[1] + i * yuv_frame->linesize[1], 1, width / 2, in);
+
+    // 读取 V 分量
+    for (int i = 0; i < height / 2; i++)
+        fread(yuv_frame->data[2] + i * yuv_frame->linesize[2], 1, width / 2, in);
+    fclose(in);
+
+    struct SwsContext* sws_ctx = sws_getContext(
+    width, height, pix_fmt,
+    width, height, AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+
+    AVFrame* rgb_frame = av_frame_alloc();
+    auto_destroy2.set_frame(rgb_frame);
+    rgb_frame->format = AV_PIX_FMT_RGB24;
+    rgb_frame->width = width;
+    rgb_frame->height = height;
+    av_frame_get_buffer(rgb_frame, 32);
+
+    sws_scale(sws_ctx,
+            yuv_frame->data, yuv_frame->linesize, 0, height,
+            rgb_frame->data, rgb_frame->linesize);
+
+    sws_freeContext(sws_ctx);
+
+    // 6. 编码为 PNG 或 BMP
+    AVCodecID codec_id = AV_CODEC_ID_PNG; // 改成 AV_CODEC_ID_BMP 即可保存 BMP
+    const AVCodec* codec = avcodec_find_encoder(codec_id);
+    AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
+    auto_destroy2.set_codec_context(codec_ctx);
+    codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
+    codec_ctx->width = width;
+    codec_ctx->height = height;
+    codec_ctx->time_base = (AVRational){1, 25};
+    avcodec_open2(codec_ctx, codec, NULL);
+
+    AVPacket* pkt = av_packet_alloc();
+    auto_destroy2.set_packet(pkt);
+    pkt->data = NULL;
+    pkt->size = 0;
+
+    avcodec_send_frame(codec_ctx, rgb_frame);
+    if (avcodec_receive_packet(codec_ctx, pkt) == 0) {
+        FILE* f_out = fopen(out.c_str(), "wb");
+        if (f_out)
+        {
+            fwrite(pkt->data, 1, pkt->size, f_out);
+            fclose(f_out);
+        }
+        else
+        { 
+            std::cout<<"write file failed"<<std::endl;   
+        }
+        av_packet_unref(pkt);
+    }
+        
+    std::cout<<"******************format_yuv_to_rgb finished******************"<<std::endl;
     return 1;
 }
 
@@ -475,19 +666,124 @@ int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string
     return 1;
 }
 
-int CStreamTransfer::get_first_I_frame(const std::string& out, const std::string& video_path)
+int CStreamTransfer::get_first_frame_to_yuv(const std::string& out, const std::string& video_path, int frame_type)
 {
+    init();
+    CAutoDestroy auto_destroy;
+    AVFormatContext *fmt_ctx = NULL;
+    int ret = avformat_open_input(&fmt_ctx, video_path.c_str(), NULL, NULL);
+    if (ret < 0) 
+    {
+        printf_ffmepg_error(ret, "avformat_open_input");
+        if (fmt_ctx)
+        {
+            avformat_free_context(fmt_ctx);
+            fmt_ctx = NULL;
+        }
+        return -1;
+    }
+    auto_destroy.set_input_fmt_ctx(fmt_ctx);
 
-}
-int CStreamTransfer::get_first_P_frame(const std::string& out, const std::string& video_path)
-{
+    // read some streas and detect stream information:codec_id, resolution, video, audio, timestamp, etc
+    // [AVDictionary **] set thread number,probesize, analyzeduration,fpsprobesize.
+    // av_dict_set and av_dict_free 
+    ret = avformat_find_stream_info(fmt_ctx, NULL); 
+    if (ret < 0) 
+    {
+        printf_ffmepg_error(ret, "avformat_find_stream_info");
+        return -1;
+    }
 
-}
-int CStreamTransfer::I_frame_to_yuv(const std::string& out, const std::string& video_path)
-{
+    int video_stream_index = -1;
+    for (int i = 0; i < fmt_ctx->nb_streams; i++) 
+    {
+        AVStream *stream = fmt_ctx->streams[i];
+        if (stream == NULL)
+        {
+            std::cout<<"stream is null"<<std::endl;
+            return -1;     
+        }
+        else
+        {
+            if (stream->codecpar != NULL)
+            {
+                if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
+                {
+                    video_stream_index = i;
+                    break;
+                }
+            }
+            else
+            {
+                std::cout<<"stream->codecpar is null"<<std::endl; 
+                return -1;
+            }
+        }
+    }
+    if (video_stream_index < 0)
+    {           
+        std::cout<<"find video stream failed"<<std::endl;
+        return -1;
+    }
+   
+    AVCodecParameters* codec_parameter = fmt_ctx->streams[video_stream_index]->codecpar;
+    const AVCodec* codec = avcodec_find_decoder(codec_parameter->codec_id);
+    if (!codec) {
+        std::cerr << "Unsupported codec" << std::endl;
+        return -1;
+    }
 
-}
-int CStreamTransfer::P_frame_to_yuv(const std::string& out, const std::string& video_path)
-{
+    AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
+    auto_destroy.set_codec_context(codec_ctx);
+
+    avcodec_parameters_to_context(codec_ctx, codec_parameter);
     
+    ret = avcodec_open2(codec_ctx, codec, NULL);
+    if (ret < 0)
+    {
+        printf_ffmepg_error(ret, "avcodec_open2");
+        return -1;
+    }
+
+    AVPacket* pkt = av_packet_alloc();
+    AVFrame* frame = av_frame_alloc();
+    auto_destroy.set_packet(pkt);
+    auto_destroy.set_frame(frame);
+
+    int index = 0;
+                    
+    std::cout<<"start decoder"<<std::endl;
+    bool find = false;
+    int find_frame_index = 1; // find the 5 frame
+    int current_frame_index = 0;
+    while (av_read_frame(fmt_ctx, pkt) >= 0) 
+    {
+        if (pkt->stream_index == video_stream_index) 
+        {
+            avcodec_send_packet(codec_ctx, pkt);
+            while (avcodec_receive_frame(codec_ctx, frame) == 0) 
+            {
+                std::cout<<"pict_type:"<<frame->pict_type<< std::endl;
+
+                if (frame->pict_type == frame_type)
+                {
+                    ++current_frame_index;
+                    if (current_frame_index == find_frame_index)
+                    {
+                        find = true;
+                        write_frame_to_yuv(out.c_str(), frame);
+
+                    }
+                    std::cout<<"find the frame, current_frame_index:"<< current_frame_index << std::endl;
+                    break;
+                }
+            }
+        }
+        if(find)
+        {
+            break;
+        }
+    }
+    std::cout<<"******************get_first_frame_to_yuv finished******************"<<std::endl;
+    return 1;
 }
