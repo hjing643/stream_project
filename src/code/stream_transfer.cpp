@@ -183,12 +183,15 @@ void printf_ffmepg_error(int error_code, const std::string& fun_name)
     std::cout << finalbuf << std::endl;
 }
 
-void write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
+int write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
 {
     std::cout<<"width:"<< ptr_frame->width << ",height"<<ptr_frame->height<< std::endl;
 
     FILE* f = fopen(file_path, "wb");
-
+    if (!f)
+    {
+        return -1;
+    }
     if (ptr_frame->format == AV_PIX_FMT_YUV420P
         || ptr_frame->format == AV_PIX_FMT_YUVJ420P)
         {
@@ -205,9 +208,126 @@ void write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
                 fwrite(ptr_frame->data[2] + i * ptr_frame->linesize[2], 1, ptr_frame->width / 2, f);
         }
    
-
     fclose(f);
+    return 1;
 }
+int write_frame_to_rgb(const char* file_path, AVFrame* src_frame)
+{
+    int width = src_frame->width;
+    int height = src_frame->height;
+
+    CAutoDestroy auto_destroy;
+    // 1. 创建 RGB24 的目标帧
+    AVFrame* rgb_frame = av_frame_alloc();
+    auto_destroy.set_frame(rgb_frame);
+
+    rgb_frame->format = AV_PIX_FMT_RGB24;
+    rgb_frame->width = width;
+    rgb_frame->height = height;
+    av_frame_get_buffer(rgb_frame, 32);
+
+    // 2. 使用 sws_scale 做格式转换（YUV → RGB）
+    SwsContext* sws_ctx = sws_getContext(
+        width, height, (AVPixelFormat)src_frame->format,
+        width, height, AV_PIX_FMT_RGB24,
+        SWS_BILINEAR, NULL, NULL, NULL);
+
+    sws_scale(sws_ctx,
+              src_frame->data, src_frame->linesize,
+              0, height,
+              rgb_frame->data, rgb_frame->linesize);
+
+    sws_freeContext(sws_ctx);
+
+    FILE* f_w = fopen(file_path, "wb");
+    if (!f_w)
+    {
+        return -1;
+    }
+    for (int y = 0; y < rgb_frame->height; y++) 
+    {
+        fwrite(rgb_frame->data[0] + y * rgb_frame->linesize[0], 1, rgb_frame->width * 3, f_w);
+    }    
+    fclose(f_w);
+    return 1;
+}
+int write_frame_to_png(const char* file_path, AVFrame* src_frame)
+{
+    int width = src_frame->width;
+    int height = src_frame->height;
+
+    CAutoDestroy auto_destroy;
+    // 1. 创建 RGB24 的目标帧
+    AVFrame* rgb_frame = av_frame_alloc();
+    auto_destroy.set_frame(rgb_frame);
+
+    rgb_frame->format = AV_PIX_FMT_RGB24;
+    rgb_frame->width = width;
+    rgb_frame->height = height;
+    av_frame_get_buffer(rgb_frame, 32);
+
+    // 2. 使用 sws_scale 做格式转换（YUV → RGB）
+    SwsContext* sws_ctx = sws_getContext(
+        width, height, (AVPixelFormat)src_frame->format,
+        width, height, AV_PIX_FMT_RGB24,
+        SWS_BILINEAR, NULL, NULL, NULL);
+
+    sws_scale(sws_ctx,
+              src_frame->data, src_frame->linesize,
+              0, height,
+              rgb_frame->data, rgb_frame->linesize);
+
+    sws_freeContext(sws_ctx);
+
+    // 3. 查找 PNG 编码器并创建上下文
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PNG);
+    if (!codec) {
+        fprintf(stderr, "找不到 PNG 编码器\n");
+        return false;
+    }
+
+    AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
+    auto_destroy.set_codec_context(codec_ctx);
+
+    codec_ctx->bit_rate = 400000;
+    codec_ctx->width = width;
+    codec_ctx->height = height;
+    codec_ctx->time_base = (AVRational){1, 25};
+    codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
+
+    if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
+        fprintf(stderr, "open codec failed\n");
+        return false;
+    }
+
+    // 4. 编码帧
+    AVPacket* pkt = av_packet_alloc();
+    auto_destroy.set_packet(pkt);
+    if (!pkt) 
+    {
+        return -1;
+    }
+
+    if (avcodec_send_frame(codec_ctx, rgb_frame) < 0) {
+        fprintf(stderr, "send frame failed\n");
+        return false;
+    }
+
+    if (avcodec_receive_packet(codec_ctx, pkt) == 0) {
+        // 5. 写入 PNG 文件
+        FILE* f_w = fopen(file_path, "wb");
+        if (!f_w)
+        {
+            return -1;
+        }
+        fwrite(pkt->data, 1, pkt->size, f_w);
+        fclose(f_w);
+        av_packet_unref(pkt);
+    }
+
+    return 1;
+}
+
 
 int CStreamTransfer::init()
 {
@@ -666,7 +786,7 @@ int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string
     return 1;
 }
 
-int CStreamTransfer::get_first_frame_to_yuv(const std::string& out, const std::string& video_path, int frame_type)
+int CStreamTransfer::get_first_frame(const std::string& out, const std::string& video_path, int frame_type, int dst_codec)
 {
     init();
     CAutoDestroy auto_destroy;
@@ -771,7 +891,18 @@ int CStreamTransfer::get_first_frame_to_yuv(const std::string& out, const std::s
                     if (current_frame_index == find_frame_index)
                     {
                         find = true;
-                        write_frame_to_yuv(out.c_str(), frame);
+                        if (dst_codec == 1)
+                        {
+                            write_frame_to_yuv(out.c_str(), frame);
+                        }
+                        else if(dst_codec == 2)
+                        {                            
+                            write_frame_to_rgb(out.c_str(), frame);
+                        }
+                        else if(dst_codec == 3)
+                        {
+                            write_frame_to_png(out.c_str(), frame);
+                        }
 
                     }
                     std::cout<<"find the frame, current_frame_index:"<< current_frame_index << std::endl;

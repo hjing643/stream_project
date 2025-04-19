@@ -33,7 +33,8 @@ class CStreamTransfer
 
         // get the frame and write the data to yuv
         // frame_type: 1-I，2-P,3-B
-        int get_first_frame_to_yuv(const std::string& out, const std::string& video_path, int frme_type);
+        // dst_codec: 1-YUV,2-RGB,3-PNG
+        int get_first_frame(const std::string& out, const std::string& video_path, int frme_type, int dst_codec);
 
         // mp4 to h264
         int format_mp4_to_raw(const std::string& out, const std::string& video_path);
