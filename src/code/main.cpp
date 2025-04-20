@@ -27,6 +27,9 @@ int main(int argc, char* argv[])
             << "\n13-get_first_P_frame_to_rgb"
             << "\n14-get_first_I_frame_to_png"
             << "\n15-get_first_P_frame_to_png"
+            << "\n16-get_first_I_frame_to_raw"
+            << "\n17-get_first_I_frame_to_raw"
+
             << std::endl;
 
     int function_type = 0;
@@ -116,6 +119,24 @@ int main(int argc, char* argv[])
                 file_output = "../output/p.png";      
             }
             stream_transfer.get_first_frame(file_output, fullPath, 2, 3);      
+        }
+        break;
+         case 16:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/i.i";      
+            }
+            stream_transfer.get_first_frame(file_output, fullPath, 1, 0);
+        }
+        break;
+        case 17:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/p.p";      
+            }
+            stream_transfer.get_first_frame(file_output, fullPath, 2, 0);      
         }
         break;
         default:

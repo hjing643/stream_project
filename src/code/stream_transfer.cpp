@@ -182,7 +182,18 @@ void printf_ffmepg_error(int error_code, const std::string& fun_name)
 
     std::cout << finalbuf << std::endl;
 }
-
+int write_packet_to_file(const char* file_path, AVPacket* ptr_packet)
+{
+    FILE* f = fopen(file_path, "wb");
+    if (!f)
+    {
+        std::cout<<"open file "<<file_path << " failed" << std::endl;
+        return -1;
+    }
+    fwrite(ptr_packet->data, 1, ptr_packet->size, f);
+    fclose(f);
+    return 1;
+}
 int write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
 {
     std::cout<<"width:"<< ptr_frame->width << ",height"<<ptr_frame->height<< std::endl;
@@ -190,6 +201,7 @@ int write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
     FILE* f = fopen(file_path, "wb");
     if (!f)
     {
+        std::cout<<"open file "<<file_path << " failed" << std::endl;
         return -1;
     }
     if (ptr_frame->format == AV_PIX_FMT_YUV420P
@@ -242,6 +254,7 @@ int write_frame_to_rgb(const char* file_path, AVFrame* src_frame)
     FILE* f_w = fopen(file_path, "wb");
     if (!f_w)
     {
+        std::cout<<"open file "<<file_path << " failed" << std::endl;
         return -1;
     }
     for (int y = 0; y < rgb_frame->height; y++) 
@@ -318,6 +331,7 @@ int write_frame_to_png(const char* file_path, AVFrame* src_frame)
         FILE* f_w = fopen(file_path, "wb");
         if (!f_w)
         {
+            std::cout<<"open file "<<file_path << " failed" << std::endl;
             return -1;
         }
         fwrite(pkt->data, 1, pkt->size, f_w);
@@ -891,7 +905,11 @@ int CStreamTransfer::get_first_frame(const std::string& out, const std::string& 
                     if (current_frame_index == find_frame_index)
                     {
                         find = true;
-                        if (dst_codec == 1)
+                        if(dst_codec == 0)
+                        {
+                            write_packet_to_file(out.c_str(), pkt);
+                        }
+                        else if (dst_codec == 1)
                         {
                             write_frame_to_yuv(out.c_str(), frame);
                         }
