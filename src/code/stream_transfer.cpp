@@ -797,6 +797,90 @@ int CStreamTransfer::format_yuv_to_rgb(const std::string& out, const std::string
 // mp4 to h264
 int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string& video_path)
 {
+    init();
+    CAutoDestroy auto_destroy;
+
+    const char* input_filename = video_path.c_str();
+    const char* output_filename = out.c_str();
+
+    AVFormatContext* fmt_ctx = NULL;
+    int ret = avformat_open_input(&fmt_ctx, input_filename, NULL, NULL);
+    if (ret < 0)
+    {
+        printf_ffmepg_error(ret, "avformat_open_input");
+        if (fmt_ctx)
+        {
+            avformat_free_context(fmt_ctx);
+            fmt_ctx = NULL;
+        }
+        return -1;
+    }
+    auto_destroy.set_input_fmt_ctx(fmt_ctx);
+
+    ret = avformat_find_stream_info(fmt_ctx, NULL);
+    if (ret < 0) {
+        printf_ffmepg_error(ret, "avformat_find_stream_info");
+        return -1;
+    }
+
+    // 找到视频流索引
+    int video_stream_index = -1;
+    for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
+        if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            video_stream_index = i;
+            break;
+        }
+    }
+
+    if (video_stream_index == -1) 
+    {
+        std::cerr << "No video stream found" << std::endl;
+        return -1;
+    }
+
+    std::ofstream output(output_filename, std::ios::binary);
+    if (!output.is_open()) 
+    {
+        std::cerr << "Failed to open output file" << std::endl;
+        return -1;
+    }
+
+    AVPacket* packet = av_packet_alloc();
+    auto_destroy.set_packet(packet);
+
+    while (av_read_frame(fmt_ctx, packet) >= 0) {
+        if (packet->stream_index == video_stream_index) 
+        {
+            uint8_t* data = packet->data;
+            int size = packet->size;
+
+            while (size > 4) 
+            {
+                // 获取当前 NALU 的长度（4字节 big endian）
+                uint32_t nalu_size = AV_RB32(data);
+                data += 4;
+                size -= 4;
+
+                if (nalu_size > size) {
+                    std::cerr << "NALU size error" << std::endl;
+                    break;
+                }
+
+                // 写入 Start Code
+                output.write("\x00\x00\x00\x01", 4);
+
+                // 写入 NALU 数据
+                output.write(reinterpret_cast<const char*>(data), nalu_size);
+
+                data += nalu_size;
+                size -= nalu_size;
+            }
+        }
+        av_packet_unref(packet);
+    }
+
+    output.close();
+    std::cout << "format_mp4_to_raw finshed " << output_filename << std::endl;
     return 1;
 }
 

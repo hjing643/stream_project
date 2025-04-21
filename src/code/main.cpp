@@ -21,6 +21,7 @@ int main(int argc, char* argv[])
             << "\n1-deep analyze_file"
             << "\n2-format_raw_to_mp4"
             << "\n3-format_yuv_to_rgb"
+            << "\n4-format_mp4_to_raw"
             << "\n10-get_first_I_frame_to_yuv"
             << "\n11-get_first_P_frame_to_yuv"
             << "\n12-get_first_I_frame_to_rgb"
@@ -28,7 +29,7 @@ int main(int argc, char* argv[])
             << "\n14-get_first_I_frame_to_png"
             << "\n15-get_first_P_frame_to_png"
             << "\n16-get_first_I_frame_to_raw"
-            << "\n17-get_first_I_frame_to_raw"
+            << "\n17-get_first_P_frame_to_raw"
 
             << std::endl;
 
@@ -65,6 +66,15 @@ int main(int argc, char* argv[])
                 file_output = "../output/frame.rgb";      
             }
             stream_transfer.format_yuv_to_rgb(file_output, fullPath);       
+        }
+            break;
+        case 4:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/h264.h264";      
+            }
+            stream_transfer.format_mp4_to_raw(file_output, fullPath);       
         }
             break;
         case 10:
