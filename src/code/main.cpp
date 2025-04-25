@@ -17,8 +17,8 @@ int main(int argc, char* argv[])
 
     std::string fullPath = argv[1];
 
-    std::cout <<"filetype:" << "\n transfer: 0"
-            << "\n read: 1"
+    std::cout <<"filetype:" << "\ntranscode : 0"
+            << "\nread_stream: 1"
             << std::endl;
 
     int file_type = 0;
@@ -194,6 +194,10 @@ int main(int argc, char* argv[])
         switch (function_type)
         {
             case 0:
+                if (file_output.empty())
+                {
+                    file_output = "../output";      
+                }
                 read_stream.read_mp4_box(file_output, fullPath);
                 break;
             default:

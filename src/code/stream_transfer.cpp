@@ -169,7 +169,6 @@ void printf_stream_info(const FileFormat& file_format)
                 << ",name:" << codec->name
                 << ",longname:" << codec->long_name <<std::endl;
         std::cout << "audio sample_rate:" << file_format.audio_stream->codecpar->sample_rate <<std::endl;
-        std::cout << "audio channels:" << file_format.audio_stream->codecpar->channels <<std::endl;  
     }
 }
 void printf_ffmepg_error(int error_code, const std::string& fun_name)
@@ -495,7 +494,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                     {
                         idr_mark = true;
                     }
-                    snprintf(finalbuf, sizeof(finalbuf), "%d IDR[%d],size[%d],pts[%d],dts[%d],duration[%d],pos[%d]", 
+                    snprintf(finalbuf, sizeof(finalbuf), "%d IDR[%d],size[%d],pts[%ld],dts[%ld],duration[%ld],pos[%ld]", 
                     index++,
                     idr_mark,
                     pkt->size,
@@ -508,23 +507,33 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                     
                     
                     avcodec_send_packet(codec_ctx, pkt);
-                    while (avcodec_receive_frame(codec_ctx, frame) == 0) 
+                    int ret = avcodec_receive_frame(codec_ctx, frame);
+                    if (ret != 0)
                     {
-                        char pict_type = av_get_picture_type_char(frame->pict_type);
-                        double pts_sec = frame->pts * av_q2d(fmt_ctx->streams[video_stream_index]->time_base);
-                        std::cout << "  Frame: type=" << pict_type
-                                << ", pts=" << pts_sec
-                                << ", size=" << frame->width << "x" << frame->height
-                                << std::endl;
-
-                        if (!(pkt->flags & AV_PKT_FLAG_KEY)
-                        && frame->pict_type == AV_PICTURE_TYPE_I)
-                        {
-                            std::cout << "  non IDR I Frame" << std::endl;
-                        }
-                        av_frame_unref(frame);
+                        std::cout << "avcodec_receive_frame failed:" << ret << std::endl;
                     }
-                    
+                    else
+                    {
+                        
+                        while (ret == 0) 
+                        {
+                            char pict_type = av_get_picture_type_char(frame->pict_type);
+                            double pts_sec = frame->pts * av_q2d(fmt_ctx->streams[video_stream_index]->time_base);
+                            std::cout << "  Frame: type=" << pict_type
+                                    << ", pts=" << pts_sec
+                                    << ", size=" << frame->width << "x" << frame->height
+                                    << std::endl;
+
+                            if (!(pkt->flags & AV_PKT_FLAG_KEY)
+                            && frame->pict_type == AV_PICTURE_TYPE_I)
+                            {
+                                std::cout << "  non IDR I Frame" << std::endl;
+                            }
+                            av_frame_unref(frame);
+
+                            ret = avcodec_receive_frame(codec_ctx, frame);
+                        }
+                    }
                 }
                 av_packet_unref(pkt);
                 if (index > max_index)
@@ -948,6 +957,12 @@ int CStreamTransfer::format_yuv_to_rgb(const std::string& out, const std::string
 }
 
 // mp4 to h264
+void write_nalu(const uint8_t* data, int size, std::ofstream& outfile) {
+    static const uint8_t start_code[4] = {0x00, 0x00, 0x00, 0x01};
+    outfile.write((const char*)start_code, 4);
+    outfile.write((const char*)data, size);
+}
+
 int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string& video_path)
 {
     init();
@@ -992,6 +1007,12 @@ int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string
         return -1;
     }
 
+    // get sps and pps
+    uint8_t* extradata = fmt_ctx->streams[video_stream_index]->codecpar->extradata;
+    int extradata_size = fmt_ctx->streams[video_stream_index]->codecpar->extradata_size;
+
+    std::cout << "extradata_size:" << extradata_size << std::endl;
+
     std::ofstream output(output_filename, std::ios::binary);
     if (!output.is_open()) 
     {
@@ -1002,32 +1023,50 @@ int CStreamTransfer::format_mp4_to_raw(const std::string& out, const std::string
     AVPacket* packet = av_packet_alloc();
     auto_destroy_input.set_packet(packet);
 
-    while (av_read_frame(fmt_ctx, packet) >= 0) {
+    bool wrote_header = false;
+
+    while (av_read_frame(fmt_ctx, packet) >= 0) 
+    {
         if (packet->stream_index == video_stream_index) 
         {
-            uint8_t* data = packet->data;
-            int size = packet->size;
-
-            while (size > 4) 
+            if (!wrote_header) 
             {
-                // 获取当前 NALU 的长度（4字节 big endian）
-                uint32_t nalu_size = AV_RB32(data);
-                data += 4;
-                size -= 4;
-
-                if (nalu_size > size) {
-                    std::cerr << "NALU size error" << std::endl;
-                    break;
+                // 第一次，写extradata（SPS/PPS）
+                int offset = 6; // skip AVCC header (6 bytes固定头)
+                int num_sps = extradata[5] & 0x1F; // 5th字节是sps数量（通常是1）
+                for (int i = 0; i < num_sps; ++i) {
+                    int sps_size = (extradata[offset] << 8) | extradata[offset + 1];
+                    offset += 2;
+                    write_nalu(extradata + offset, sps_size, output);
+                    offset += sps_size;
                 }
 
-                // 写入 Start Code
-                output.write("\x00\x00\x00\x01", 4);
-
-                // 写入 NALU 数据
-                output.write(reinterpret_cast<const char*>(data), nalu_size);
-
-                data += nalu_size;
-                size -= nalu_size;
+                int num_pps = extradata[offset];
+                offset += 1;
+                for (int i = 0; i < num_pps; ++i) {
+                    int pps_size = (extradata[offset] << 8) | extradata[offset + 1];
+                    offset += 2;
+                    write_nalu(extradata + offset, pps_size, output);
+                    offset += pps_size;
+                }                
+                wrote_header = true;
+            }
+            
+            // packet本身是AVCC格式，要转成Annex-B格式
+            int pos = 0;
+            while (pos + 4 <= packet->size) 
+            {
+                int nalu_size = AV_RB32(packet->data + pos);
+                pos += 4;
+                if (pos + nalu_size <= packet->size) 
+                {
+                    write_nalu(packet->data + pos, nalu_size, output);
+                    pos += nalu_size;
+                } 
+                else 
+                {
+                    break;
+                }
             }
         }
         av_packet_unref(packet);

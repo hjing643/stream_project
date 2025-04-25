@@ -23,11 +23,13 @@ int CReadStream::read_mp4_box(const std::string& box_path, const std::string& vi
     int box_index = 1;
     int naul_index = 1;
 
+    int box_max_size = 20;
+    int nalu_max_size = 50;
     while (true)
     {
-        if (box_index > 50)
+        if (box_index > box_max_size)
         {            
-            std::cerr << "box number is more than 50: " << box_index << std::endl;
+            std::cerr << "box number is more than " << box_max_size << std::endl;
 
             break;
         }
@@ -73,15 +75,51 @@ int CReadStream::read_mp4_box(const std::string& box_path, const std::string& vi
             int seek_pos = 4;
             while (naul_size > 0 && naul_size < box_size)
             {
-                if (naul_index > 100)
+                if (naul_index > nalu_max_size)
                 {
-                    std::cerr << "naul number is more than 100: " << naul_index << std::endl;
+                    std::cerr << "naul number is more than " << nalu_max_size << std::endl;
                     break;
                 }
                 std::cout << "naul_size:" << naul_size << std::endl;
                 char sz_file_naul_name[128] = {0};
-                int naul_header = buffer[seek_pos];
-                sprintf(sz_file_naul_name, "%s/naul/naul_%d_%x", box_path.c_str(), naul_index++, naul_header);
+                char naul_header = buffer[seek_pos];
+                int f = naul_header & 0x80;
+                int nri = (naul_header >> 5) & 0x03;
+                int type = naul_header & 0x1f;
+                std::string str_type;
+                switch (type)
+                {
+                    case 1:
+                        str_type = "NonIDR";
+                        break;
+                    case 5:
+                        str_type = "IDR";
+                        break;
+                    case 6:
+                        str_type = "SEI";
+                        break;
+                    case 7:
+                        str_type = "SPS";
+                        break;
+                    case 8:
+                        str_type = "PPS";
+                        break;
+                    case 9:
+                        str_type = "AUD";
+                        break;
+                    default:
+                        str_type = "unknown";
+                        break;
+                }
+
+                if (f != 0)
+                {
+                    sprintf(sz_file_naul_name, "%s/nalu%d_error", box_path.c_str(), naul_index++);
+                }
+                else
+                {
+                    sprintf(sz_file_naul_name, "%s/nalu%d_%d_%s", box_path.c_str(), naul_index++, nri, str_type.c_str());
+                }
                 FILE* file_naul = fopen(sz_file_naul_name, "wb");
                 if (!file_naul)
                 {
@@ -104,4 +142,14 @@ int CReadStream::read_mp4_box(const std::string& box_path, const std::string& vi
     }
     fclose(file);
     return 0;
+}
+int CReadStream::read_h264_nalu(const std::string& naul_name, const std::string& video_path)
+{
+    FILE* file = fopen(video_path.c_str(), "rb");
+    if (!file)
+    {
+        std::cerr << "Failed to open file: " << video_path << std::endl;
+        return -1;
+    }
+    return 1;
 }
