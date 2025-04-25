@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # set static
 #set(CMAKE_EXE_LINKER_FLAGS "-static")
+set(MY_HOME_DIR $ENV{HOME})
 
 #set debug
 set(CMAKE_BUILD_TYPE Debug)
@@ -31,22 +32,24 @@ add_executable(stream_program ${SOURCES})
 # header folder
 target_include_directories(stream_program BEFORE PRIVATE 
     ${CMAKE_SOURCE_DIR}/include
-    /home/Gene/ffmpeg-linux-6.0/include
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/include
 )
 
 #lib path
-link_directories(/home/Gene/ffmpeg-linux-6.0/lib)
 
 # libraries
 #set(CMAKE_IGNORE_PATH /usr/lib /usr/local/lib)
 
 target_link_libraries(stream_program PRIVATE
-/home/Gene/ffmpeg-linux-6.0/lib/libavformat.a
-/home/Gene/ffmpeg-linux-6.0/lib/libavcodec.a
-/home/Gene/ffmpeg-linux-6.0/lib/libavutil.a
-/home/Gene/ffmpeg-linux-6.0/lib/libvpx.a
-/home/Gene/ffmpeg-linux-6.0/lib/libswscale.a
-/home/Gene/ffmpeg-linux-6.0/lib/libswresample.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavformat.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavcodec.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavutil.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswscale.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswresample.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx264.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx265.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libvpx.a
+${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libfdk-aac.a
 pthread
 m
 z
