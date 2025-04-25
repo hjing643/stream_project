@@ -439,6 +439,10 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                 {
                     file_format.audio_stream = stream;  
                 }
+                else
+                {
+                    std::cout<<"stream->codecpar->codec_type is not video or audio:"<<stream->codecpar->codec_type << std::endl;
+                }
             }
             else
             {
@@ -1220,7 +1224,7 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
     const AVCodec* video_decoder = avcodec_find_decoder(input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id);
     if (!video_decoder) 
     {
-        std::cerr << "Unsupported video codec\n";
+        std::cerr << "Unsupported video codec1 " << input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id << std::endl;
         return -1;
     }
     AVCodecContext* video_dec_ctx = avcodec_alloc_context3(video_decoder);
@@ -1238,7 +1242,7 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
     const AVCodec* video_encoder = avcodec_find_encoder(AV_CODEC_ID_H264);
     if (!video_encoder) 
     {
-        std::cerr << "Unsupported video codec\n";
+        std::cerr << "Unsupported video codec AV_CODEC_ID_H264\n";
         return -1;
     }
     AVStream* out_video_stream = avformat_new_stream(output_fmt_ctx, video_encoder);

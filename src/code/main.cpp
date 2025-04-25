@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include "stream_transfer.h"
+#include "read_stream.h"
 int main(int argc, char* argv[])
 {
     if (argc < 2)
@@ -16,12 +17,22 @@ int main(int argc, char* argv[])
 
     std::string fullPath = argv[1];
 
-    std::cout << "function type:"
+    std::cout <<"filetype:" << "\n transfer: 0"
+            << "\n read: 1"
+            << std::endl;
+
+    int file_type = 0;
+    std::cin >> file_type;
+    if (file_type == 0)
+    {
+        std::cout << "function type:"
             << "\n0-analyze_file"
             << "\n1-deep analyze_file"
             << "\n2-format_raw_to_mp4"
             << "\n3-format_yuv_to_rgb"
             << "\n4-format_mp4_to_raw"
+            << "\n5-format_raw_to_avi"
+            << "\n6-format_v9_to_h264"
             << "\n10-get_first_I_frame_to_yuv"
             << "\n11-get_first_P_frame_to_yuv"
             << "\n12-get_first_I_frame_to_rgb"
@@ -37,7 +48,6 @@ int main(int argc, char* argv[])
     std::cin >> function_type;
 
     CStreamTransfer stream_transfer;
-
     switch (function_type)
     {
         case 0:
@@ -75,6 +85,24 @@ int main(int argc, char* argv[])
                 file_output = "../output/h264.h264";      
             }
             stream_transfer.format_mp4_to_raw(file_output, fullPath);       
+        }
+            break;
+        case 5:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/avi.avi";      
+            }
+            stream_transfer.format_raw_to_avi(file_output, fullPath);
+        }
+            break;
+        case 6:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/h264.h264";      
+            }
+            stream_transfer.format_v9_to_h264(file_output, fullPath);
         }
             break;
         case 10:
@@ -152,6 +180,25 @@ int main(int argc, char* argv[])
         default:
             break;
 
+    }
+    }
+    else if (file_type == 1)
+    {
+        std::cout << "function type:"
+            << "\n0-read_mp4_box"
+            << std::endl;
+
+        int function_type = 0;
+        std::cin >> function_type;
+        CReadStream read_stream;
+        switch (function_type)
+        {
+            case 0:
+                read_stream.read_mp4_box(file_output, fullPath);
+                break;
+            default:
+                break;
+        }
     }
     
     return 0;
