@@ -27,13 +27,11 @@ int main(int argc, char* argv[])
     std::cin >> file_type;
     if (file_type == 0)
     {
-        int target_width = 1280;
-        int target_height = 720;
         if (file_output.empty())
         {
-            file_output = "../output/720P.mp4";      
+            file_output = "../output/mp4_from_webm.mp4";      
         }
-        stream_transfer.change_resolution(file_output, fullPath, target_width, target_height);
+        stream_transfer.format_webm_to_mp4(file_output, fullPath);
     }
     if (file_type == 1)
     {
@@ -44,7 +42,7 @@ int main(int argc, char* argv[])
             << "\n3-format_yuv_to_rgb"
             << "\n4-format_mp4_to_raw"
             << "\n5-format_raw_to_avi"
-            << "\n6-format_v9_to_h264"
+            << "\n6-format_webm_to_mp4"
             << "\n7-change_resolution"
             << "\n10-get_first_I_frame_to_yuv"
             << "\n11-get_first_I_frame_to_png"
@@ -105,9 +103,9 @@ int main(int argc, char* argv[])
         {
             if (file_output.empty())
             {
-                file_output = "../output/h264.h264";      
+                file_output = "../output/mp4_from_webm.mp4";      
             }
-            stream_transfer.format_v9_to_h264(file_output, fullPath);
+            stream_transfer.format_webm_to_mp4(file_output, fullPath);
         }
             break;
         case 7:

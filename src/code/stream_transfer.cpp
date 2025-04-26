@@ -1219,7 +1219,7 @@ int CStreamTransfer::get_first_frame(const std::string& out, const std::string& 
     std::cout<<"******************get_first_frame_to_yuv finished******************"<<std::endl;
     return 1;
 }
-int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string& video_path)
+int CStreamTransfer::format_webm_to_mp4(const std::string& out, const std::string& video_path)
 {
     const char* input_filename = video_path.c_str();
     const char* output_filename = out.c_str();
@@ -1275,12 +1275,20 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
     auto_destroy_input.set_codec_context(video_dec_ctx);
 
     avcodec_parameters_to_context(video_dec_ctx, input_fmt_ctx->streams[video_stream_index]->codecpar);
+    // there is no framerate and time_base in video_dec_ctx, we need to set it
+    // r_frame_rate and time_base is from AVStream rather AVCodec.
     video_dec_ctx->time_base = input_fmt_ctx->streams[video_stream_index]->time_base;
+    video_dec_ctx->framerate = input_fmt_ctx->streams[video_stream_index]->r_frame_rate;
     avcodec_open2(video_dec_ctx, video_decoder, NULL);
 
     // --- 创建输出上下文 ---
     AVFormatContext* output_fmt_ctx = NULL;
     avformat_alloc_output_context2(&output_fmt_ctx, NULL, "mp4", output_filename);
+    if (!output_fmt_ctx) 
+    {
+        std::cerr << "avformat_alloc_output_context2 failed "<< std::endl;
+        return -1;
+    }
     auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
 
     // 视频编码器（H.264）
@@ -1290,7 +1298,6 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
         std::cerr << "Unsupported video codec AV_CODEC_ID_H264\n";
         return -1;
     }
-    AVStream* out_video_stream = avformat_new_stream(output_fmt_ctx, video_encoder);
     AVCodecContext* video_enc_ctx = avcodec_alloc_context3(video_encoder);
     auto_destroy_output.set_codec_context(video_enc_ctx);
 
@@ -1298,24 +1305,44 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
     video_enc_ctx->width = video_dec_ctx->width;
     video_enc_ctx->sample_aspect_ratio = video_dec_ctx->sample_aspect_ratio;
     video_enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P; // some fmt not support in h264
-    video_enc_ctx->time_base = video_dec_ctx->time_base;
     if (video_dec_ctx->bit_rate > 0)
     {
         video_enc_ctx->bit_rate = video_dec_ctx->bit_rate;
     }
     else
     {
-        video_enc_ctx->bit_rate = 2*1024*1-24;  // 高清（1080p）较常用
+        video_enc_ctx->bit_rate = 2*1024*1024;  // 高清（1080p）较常用
     }
+            
+    video_enc_ctx->bit_rate = 2*1024*1024;  // 高清（1080p）较常用
+    video_enc_ctx->time_base = video_dec_ctx->time_base;
+    video_enc_ctx->framerate = video_dec_ctx->framerate;
+    video_enc_ctx->gop_size = 50; // 30帧一个关键帧
+    video_enc_ctx->level = 31;  // Level 3.1
+
+    std::cout << "video_enc_ctx->time_base:" << video_enc_ctx->time_base.num << "/" << video_enc_ctx->time_base.den << std::endl;
+    std::cout << "video_enc_ctx->framerate:" << video_enc_ctx->framerate.num << "/" << video_enc_ctx->framerate.den << std::endl;
+    //std::cout << "video_enc_ctx->gop_size:" << video_enc_ctx->gop_size << std::endl;
+
     avcodec_open2(video_enc_ctx, video_encoder, NULL);
+
+    AVStream* out_video_stream = avformat_new_stream(output_fmt_ctx, video_encoder);
     avcodec_parameters_from_context(out_video_stream->codecpar, video_enc_ctx);
     out_video_stream->time_base = video_enc_ctx->time_base;
+    out_video_stream->avg_frame_rate = video_enc_ctx->framerate;
+    out_video_stream->r_frame_rate = video_enc_ctx->framerate;
+
+    std::cout << "out_video_stream->time_base:" 
+    << out_video_stream->time_base.num << "/" << out_video_stream->time_base.den << std::endl;
+
     // 设置输出文件
     if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
         avio_open(&output_fmt_ctx->pb, output_filename, AVIO_FLAG_WRITE);
     }
-
-    avformat_write_header(output_fmt_ctx, NULL);
+    
+    // output_fmt_ctx modify to 1/16000, before is 1/1000
+    // 1/1000 is not a good choice
+    avformat_write_header(output_fmt_ctx, NULL); 
 
     AVPacket* input_packet = av_packet_alloc();
     auto_destroy_input.set_packet(input_packet);
@@ -1339,9 +1366,16 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
     int frame_index = 0;
     while (av_read_frame(input_fmt_ctx, input_packet) >= 0) {
         if (input_packet->stream_index == video_stream_index) {
-            avcodec_send_packet(video_dec_ctx, input_packet);
+            ret = avcodec_send_packet(video_dec_ctx, input_packet);
+            if (ret < 0) {
+                printf_ffmepg_error(ret, "avcodec_send_packet");
+                // 根据情况判断是不是 continue 还是直接 break
+                continue;
+            }
+
             while (avcodec_receive_frame(video_dec_ctx, input_frame) == 0) {
                 // 转换像素格式
+                av_frame_unref(output_frame); // 清除旧的
                 output_frame->format = video_enc_ctx->pix_fmt;
                 output_frame->width = video_enc_ctx->width;
                 output_frame->height = video_enc_ctx->height;
@@ -1359,25 +1393,69 @@ int CStreamTransfer::format_v9_to_h264(const std::string& out, const std::string
 
                 while (avcodec_receive_packet(video_enc_ctx, output_packet) == 0) {
                     output_packet->stream_index = out_video_stream->index;
+
+                    AVRational src_time_base = (AVRational){1, video_enc_ctx->framerate.num}; // 30fps -> 1/30
+                    AVRational dst_time_base = (AVRational){1, out_video_stream->time_base.den}; // 1/16000
+                    av_packet_rescale_ts(output_packet, src_time_base, dst_time_base);
+                    //av_packet_rescale_ts(output_packet, video_enc_ctx->time_base, out_video_stream->time_base);
+                    //std::cout << "output_packet->pts:" << output_packet->pts << std::endl;
+                    //std::cout << "output_packet->dts:" << output_packet->dts << std::endl;
+                    //std::cout << "output_packet->time_base:" << output_packet->time_base.num << "/" << output_packet->time_base.den << std::endl;
                     av_interleaved_write_frame(output_fmt_ctx, output_packet); 
                     av_packet_unref(output_packet);
                 }
-                av_frame_unref(output_frame);
+                av_frame_unref(input_frame);
             }
         }
         av_packet_unref(input_packet);
     }
 
-    avcodec_send_frame(video_enc_ctx, nullptr);
+    // 解码器 flush
+    avcodec_send_packet(video_dec_ctx, NULL);
+    while (avcodec_receive_frame(video_dec_ctx, input_frame) == 0) 
+    {
+        output_frame->format = video_enc_ctx->pix_fmt;
+        output_frame->width = video_enc_ctx->width;
+        output_frame->height = video_enc_ctx->height;
+        av_frame_get_buffer(output_frame, 32);
+        sws_scale(sws_ctx,
+                    input_frame->data, input_frame->linesize, 0, input_frame->height,
+                    output_frame->data, output_frame->linesize);
+
+        output_frame->pts = frame_index++;
+
+        avcodec_send_frame(video_enc_ctx, output_frame);
+
+        while (avcodec_receive_packet(video_enc_ctx, output_packet) == 0) {
+            output_packet->stream_index = out_video_stream->index;
+
+            AVRational src_time_base = (AVRational){1, video_enc_ctx->framerate.num}; // 30fps -> 1/30
+            AVRational dst_time_base = (AVRational){1, out_video_stream->time_base.den}; // 1/16000
+            av_packet_rescale_ts(output_packet, src_time_base, dst_time_base);
+
+            av_interleaved_write_frame(output_fmt_ctx, output_packet); 
+            av_packet_unref(output_packet);
+        }
+        av_frame_unref(input_frame);
+        av_frame_unref(output_frame);
+    }
+
+    // 编码器 flush
+    avcodec_send_frame(video_enc_ctx, NULL);
     while (avcodec_receive_packet(video_enc_ctx, output_packet) == 0) {
         output_packet->stream_index = out_video_stream->index;
+
+        AVRational src_time_base = (AVRational){1, video_enc_ctx->framerate.num}; // 30fps -> 1/30
+        AVRational dst_time_base = (AVRational){1, out_video_stream->time_base.den}; // 1/16000
+        av_packet_rescale_ts(output_packet, src_time_base, dst_time_base);
+
         av_interleaved_write_frame(output_fmt_ctx, output_packet);
         av_packet_unref(output_packet);
     }
 
     av_write_trailer(output_fmt_ctx);
 
-    std::cout << "format_v9_to_h264 finished " << output_filename << std::endl;
+    std::cout << "format_webm_to_mp4 finished " << output_filename << std::endl;
     return 1;
 }
 int CStreamTransfer::change_resolution(const std::string& out, const std::string& video_path, int target_width, int target_height)
@@ -1565,8 +1643,6 @@ int CStreamTransfer::change_resolution(const std::string& out, const std::string
 
     std::cout << "change_resolution finished " << out << std::endl;
     return 1;
-
-    
 }
 int CStreamTransfer::change_fps(const std::string& out, const std::string& video_path, int fps)
 {

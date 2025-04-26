@@ -30,9 +30,9 @@ class CStreamTransfer
         int format_raw_to_avi(const std::string& out, const std::string& video_path);
         int format_raw_to_yuv(const std::string& out, const std::string& video_path);
         int format_yuv_to_rgb(const std::string& out, const std::string& video_path);
+        int format_webm_to_mp4(const std::string& out, const std::string& video_path);
 
         //v9 to h264
-        int format_v9_to_h264(const std::string& out, const std::string& video_path);
         int change_resolution(const std::string& out, const std::string& video_path, int width, int height);
         int change_fps(const std::string& out, const std::string& video_path, int fps);
 
