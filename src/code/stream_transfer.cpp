@@ -1314,9 +1314,8 @@ int CStreamTransfer::format_webm_to_mp4(const std::string& out, const std::strin
         video_enc_ctx->bit_rate = 2*1024*1024;  // 高清（1080p）较常用
     }
             
-    video_enc_ctx->bit_rate = 2*1024*1024;  // 高清（1080p）较常用
-    video_enc_ctx->time_base = video_dec_ctx->time_base;
-    video_enc_ctx->framerate = video_dec_ctx->framerate;
+    video_enc_ctx->time_base = AVRational{1, 25};
+    video_enc_ctx->framerate = AVRational{25, 1};
     video_enc_ctx->gop_size = 50; // 30帧一个关键帧
     video_enc_ctx->level = 31;  // Level 3.1
 
