@@ -34,7 +34,7 @@ class CStreamTransfer
 
         //v9 to h264
         int change_resolution(const std::string& out, const std::string& video_path, int width, int height);
-        int change_fps(const std::string& out, const std::string& video_path, int fps);
+        int change_fps(const std::string& out, const std::string& video_path);
 
         // get the frame and write the data to yuv
         // frame_type: 1-I，2-P,3-B

@@ -76,6 +76,28 @@ private:
     SwsContext* sws_ctx_ = NULL;
 };
 
+std::string get_input_format_name(AVFormatContext* input_fmt_ctx)
+{
+    if (!input_fmt_ctx)
+    {
+        return "";
+    }
+    std::string input_format_name = input_fmt_ctx->iformat->name;
+    size_t comma_pos = input_format_name.find(',');
+    if (comma_pos != std::string::npos) 
+    {
+        input_format_name = input_format_name.substr(0, comma_pos); 
+    }
+    return input_format_name;
+}
+bool is_keyframe(AVPacket* packet)
+{
+    if (!packet)
+    {
+        return false;
+    }
+    return packet->flags & AV_PKT_FLAG_KEY;
+}
 // stream_type: 0 video
 std::string transfer_video_pix_format(int pix_format, int stream_type)
 {
@@ -500,7 +522,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                 {
                     char finalbuf[256] = {0};
                     bool idr_mark = false;
-                    if (pkt->flags & AV_PKT_FLAG_KEY)
+                    if (is_keyframe(pkt))
                     {
                         idr_mark = true;
                     }
@@ -534,7 +556,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
                                     << ", size=" << frame->width << "x" << frame->height
                                     << std::endl;
 
-                            if (!(pkt->flags & AV_PKT_FLAG_KEY)
+                            if (!is_keyframe(pkt)
                             && frame->pict_type == AV_PICTURE_TYPE_I)
                             {
                                 std::cout << "  non IDR I Frame" << std::endl;
@@ -562,6 +584,7 @@ int CStreamTransfer::analyze_file(const std::string& video_path, bool deep)
 int CStreamTransfer::format_raw_to_mp4(const std::string& out, const std::string& video_path)
 {
     init();
+    bool use_b_frame = false;
     CAutoDestroy auto_destroy_input;
     CAutoDestroy auto_destroy_output;    
 
@@ -1223,6 +1246,7 @@ int CStreamTransfer::format_webm_to_mp4(const std::string& out, const std::strin
 {
     const char* input_filename = video_path.c_str();
     const char* output_filename = out.c_str();
+    bool enable_b_frame = false;
 
     init();
     CAutoDestroy auto_destroy_input;
@@ -1316,8 +1340,13 @@ int CStreamTransfer::format_webm_to_mp4(const std::string& out, const std::strin
             
     video_enc_ctx->time_base = AVRational{1, 25};
     video_enc_ctx->framerate = AVRational{25, 1};
-    video_enc_ctx->gop_size = 50; // 30帧一个关键帧
+    video_enc_ctx->gop_size = 50; // 50
     video_enc_ctx->level = 31;  // Level 3.1
+    if(!enable_b_frame)
+    {
+        video_enc_ctx->max_b_frames = 0;
+    }
+    //av_opt_set(video_enc_ctx->priv_data, "preset", "veryfast", 0);
 
     std::cout << "video_enc_ctx->time_base:" << video_enc_ctx->time_base.num << "/" << video_enc_ctx->time_base.den << std::endl;
     std::cout << "video_enc_ctx->framerate:" << video_enc_ctx->framerate.num << "/" << video_enc_ctx->framerate.den << std::endl;
@@ -1457,6 +1486,7 @@ int CStreamTransfer::format_webm_to_mp4(const std::string& out, const std::strin
     std::cout << "format_webm_to_mp4 finished " << output_filename << std::endl;
     return 1;
 }
+
 int CStreamTransfer::change_resolution(const std::string& out, const std::string& video_path, int target_width, int target_height)
 {
     init();
@@ -1491,13 +1521,7 @@ int CStreamTransfer::change_resolution(const std::string& out, const std::string
         std::cerr << "No video stream found\n";
         return -1;
     }
-    std::string input_format_name = input_fmt_ctx->iformat->name;
-    std::cout << "input_format_name:" << input_format_name << std::endl;
-    size_t comma_pos = input_format_name.find(',');
-    if (comma_pos != std::string::npos) 
-    {
-        input_format_name = input_format_name.substr(0, comma_pos);
-    }
+    std::string input_format_name = get_input_format_name(input_fmt_ctx);
     // decoder
     AVCodecParameters* codec_parameter = input_fmt_ctx->streams[video_stream_index]->codecpar;
     const AVCodec* decoder = avcodec_find_decoder(codec_parameter->codec_id); // AV_CODEC_ID_H264,etc  
@@ -1643,7 +1667,80 @@ int CStreamTransfer::change_resolution(const std::string& out, const std::string
     std::cout << "change_resolution finished " << out << std::endl;
     return 1;
 }
-int CStreamTransfer::change_fps(const std::string& out, const std::string& video_path, int fps)
+int CStreamTransfer::change_fps(const std::string& out, const std::string& video_path)
 {
-    return 1;   
+    init();
+    CAutoDestroy auto_destroy_input;
+    CAutoDestroy auto_destroy_output;
+
+    AVFormatContext* input_fmt_ctx = NULL;
+    int ret = avformat_open_input(&input_fmt_ctx, video_path.c_str(), NULL, NULL);
+    if (ret < 0) 
+    {
+        printf_ffmepg_error(ret, "avformat_open_input");
+        return -1;
+    }
+    auto_destroy_input.set_fmt_ctx(input_fmt_ctx, 0);
+
+    ret = avformat_find_stream_info(input_fmt_ctx, NULL);
+    if (ret < 0)
+    {
+        printf_ffmepg_error(ret, "avformat_find_stream_info");
+        return -1;
+    }
+
+    int video_stream_index = -1;
+    for (unsigned i = 0; i < input_fmt_ctx->nb_streams; ++i) 
+    {
+        if (input_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+            video_stream_index = i;
+    }
+
+    if (video_stream_index == -1)
+    {
+        std::cerr << "No video stream found\n";
+        return -1;
+    }
+    AVCodecParameters* codec_parameter = input_fmt_ctx->streams[video_stream_index]->codecpar;
+
+    // new file
+    AVFormatContext* output_fmt_ctx = NULL;
+    std::string input_format_name = get_input_format_name(input_fmt_ctx);
+    avformat_alloc_output_context2(&output_fmt_ctx, NULL, input_format_name.c_str(), out.c_str());
+    auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
+
+    AVStream* out_stream = avformat_new_stream(output_fmt_ctx, nullptr);
+    avcodec_parameters_copy(out_stream->codecpar, input_fmt_ctx->streams[video_stream_index]->codecpar);
+    out_stream->time_base = input_fmt_ctx->streams[video_stream_index]->time_base;
+
+    if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
+        avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+    }
+
+    avformat_write_header(output_fmt_ctx, nullptr);
+
+    AVPacket* packet = av_packet_alloc();
+    auto_destroy_input.set_packet(packet);
+
+    int frame_idx = 0;
+    while (av_read_frame(input_fmt_ctx, packet) >= 0) {
+        if (packet->stream_index == video_stream_index) {
+            if (is_keyframe(packet))
+            {
+                av_interleaved_write_frame(output_fmt_ctx, packet);
+            }
+            else 
+            {
+                if (frame_idx % 2 == 0) { // 只保留偶数帧
+                    av_interleaved_write_frame(output_fmt_ctx, packet);
+                }
+            }
+            frame_idx++;
+        }
+        av_packet_unref(packet);
+    }
+    av_write_trailer(output_fmt_ctx);
+
+    std::cout << "change_fps finished " << out << std::endl;
+    return 1;
 }

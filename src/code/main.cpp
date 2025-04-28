@@ -29,9 +29,9 @@ int main(int argc, char* argv[])
     {
         if (file_output.empty())
         {
-            file_output = "../output/mp4_from_webm.mp4";      
+            file_output = "../output/15fps.mp4";
         }
-        stream_transfer.format_webm_to_mp4(file_output, fullPath);
+        stream_transfer.change_fps(file_output, fullPath);
     }
     if (file_type == 1)
     {
@@ -44,6 +44,7 @@ int main(int argc, char* argv[])
             << "\n5-format_raw_to_avi"
             << "\n6-format_webm_to_mp4"
             << "\n7-change_resolution"
+            << "\n8-change_fps"
             << "\n10-get_first_I_frame_to_yuv"
             << "\n11-get_first_I_frame_to_png"
             << std::endl;
@@ -117,6 +118,15 @@ int main(int argc, char* argv[])
                 file_output = "../output/720P.mp4";      
             }
             stream_transfer.change_resolution(file_output, fullPath, target_width, target_height);
+        }
+            break;
+        case 8:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/15fps.mp4";
+            }
+            stream_transfer.change_fps(file_output, fullPath);
         }
             break;
         case 10:
