@@ -14,7 +14,7 @@ int main(int argc, char* argv[])
     {
         file_output = argv[2];
     }
-    CStreamTransfer stream_transfer;
+    stream_project::CStreamTransfer stream_transfer;
     std::string fullPath = argv[1];
 
     std::cout <<"filetype:" 
@@ -45,6 +45,7 @@ int main(int argc, char* argv[])
             << "\n6-format_webm_to_mp4"
             << "\n7-change_resolution"
             << "\n8-change_fps"
+            << "\n9-heic_to_png"
             << "\n10-get_first_I_frame_to_yuv"
             << "\n11-get_first_I_frame_to_png"
             << std::endl;
@@ -129,6 +130,14 @@ int main(int argc, char* argv[])
             stream_transfer.change_fps(file_output, fullPath);
         }
             break;
+        case 9:
+        {
+            if (file_output.empty())
+            {
+                file_output = "../output/png.png";
+            }
+            stream_transfer.heic_to_png(file_output, fullPath);
+        }
         case 10:
         {
             if (file_output.empty())
@@ -160,7 +169,7 @@ int main(int argc, char* argv[])
 
         int function_type = 0;
         std::cin >> function_type;
-        CReadStream read_stream;
+        stream_project::CReadStream read_stream;
         switch (function_type)
         {
             case 0:

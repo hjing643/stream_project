@@ -41,18 +41,20 @@ target_include_directories(stream_program BEFORE PRIVATE
 #set(CMAKE_IGNORE_PATH /usr/lib /usr/local/lib)
 
 target_link_libraries(stream_program PRIVATE
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavformat.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavcodec.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavutil.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswscale.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswresample.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx264.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx265.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libvpx.a
-${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libfdk-aac.a
-pthread
-m
-z
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavfilter.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libpostproc.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswresample.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswscale.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavformat.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavcodec.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx264.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx265.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libvpx.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libfdk-aac.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavutil.a
+    pthread
+    m
+    z
 )
 
 message("Library path: ${CMAKE_SOURCE_DIR}/lib")

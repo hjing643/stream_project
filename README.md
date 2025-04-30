@@ -28,10 +28,10 @@ make -j$(nproc)
 make install
 
 
-4. fdk-aac, libpng, libjpeg, OpenCL, CUDA/NvCodec，libsrtp
+4. fdk-aac, libpng, libjpeg, OpenCL, CUDA/NvCodec，libsrtp, libheif, libde265
 
 
-5. ffmpeg
+5. ffmpeg(only master version support libheif)
 PKG_CONFIG_PATH="$HOME/third-party/ffmpeg6.0/linux_build/lib/pkgconfig"
 
 ./configure \
@@ -51,4 +51,5 @@ PKG_CONFIG_PATH="$HOME/third-party/ffmpeg6.0/linux_build/lib/pkgconfig"
   --disable-shared \
   --disable-debug \
   --disable-doc \
-    --disable-asm
+  --disable-asm \
+  --enable-libheif

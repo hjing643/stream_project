@@ -1,10 +1,11 @@
 #pragma once
 
 #include "../includeall.h"
-
-class CReadStream
+namespace stream_project
 {
-    public:
+    class CReadStream
+    {
+        public:
         int init();
 
         // read the stream
@@ -12,5 +13,5 @@ class CReadStream
         
         // read the h264 nalu
         int read_h264_nalu(const std::string& naul_name, const std::string& video_path);
-
-};
+    };
+}
