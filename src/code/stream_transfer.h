@@ -39,11 +39,11 @@ namespace stream_project
             int format_raw_to_yuv(const std::string& out, const std::string& video_path);
             int format_webm_to_mp4(const std::string& out, const std::string& video_path);
 
-            //v9 to h264
+            // change some parameters
             int change_resolution(const std::string& out, const std::string& video_path, int width, int height);
             int change_fps(const std::string& out, const std::string& video_path);
 
-            // get the frame and write the data to yuv
+            // get one frame and write the data to picture
             // frame_type: 1-I，2-P,3-B
             // dst_codec: 0-raw, no decoder, 1-YUV,2-RGB,3-PNG
             int get_first_frame(const std::string& out, const std::string& video_path, int frme_type, int dst_codec);

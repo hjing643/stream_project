@@ -1,5 +1,6 @@
 # stream_project
-yuv,h264,rgp
+yuv,rgb,h264,v9,png,bmp,jpeg,etc..
+support trasfer to different format, analyze file
 
 compile ffmepg
 
