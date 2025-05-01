@@ -1675,5 +1675,6 @@ namespace stream_project
 
         avcodec_parameters_to_context(codec_ctx, input_fmt_ctx->streams[video_stream_index]->codecpar);
         avcodec_open2(codec_ctx, codec, NULL);
+        return 1;
     }
 }

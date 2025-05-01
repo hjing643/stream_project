@@ -2,16 +2,26 @@
 
 namespace stream_project
 {
-    int CReadStream::init()
-    {
-        return 0;
-    }
-
     uint32_t swap_big_to_little(uint32_t big) {
         return ((big >> 24) & 0x000000FF) |
             ((big >> 8)  & 0x0000FF00) |
             ((big << 8)  & 0x00FF0000) |
             ((big << 24) & 0xFF000000);
+    }
+
+    bool is_start_code3(const uint8_t* p) 
+    {
+        return p[0] == 0x00 && p[1] == 0x00 && p[2] == 0x01;
+    }
+
+    bool is_start_code4(const uint8_t* p) 
+    {
+        return p[0] == 0x00 && p[1] == 0x00 && p[2] == 0x00 && p[3] == 0x01;
+    }
+
+    int CReadStream::init()
+    {
+        return 1;
     }
 
     int CReadStream::read_mp4_box(const std::string& box_path, const std::string& video_path)
@@ -143,15 +153,119 @@ namespace stream_project
             fclose(file_box);
         }
         fclose(file);
-        return 0;
+        return 1;
     }
-    int CReadStream::read_h264_nalu(const std::string& naul_name, const std::string& video_path)
+
+    
+
+    int CReadStream::read_h264_nalu(const std::string& naul_path, const std::string& video_path)
     {
-        FILE* file = fopen(video_path.c_str(), "rb");
+        std::ifstream file(video_path.c_str(), std::ios::binary);
         if (!file)
         {
             std::cerr << "Failed to open file: " << video_path << std::endl;
             return -1;
+        }
+        
+        
+        const size_t chunk_size = 4096;
+        std::vector<uint8_t> chunk(chunk_size);
+
+        int naul_index = 1;
+        while (file.read((char*)chunk.data(), chunk_size) || file.gcount() > 0) 
+        {
+            size_t bytes_read = file.gcount();
+            std::vector<uint8_t> data(chunk.begin(), chunk.begin() + bytes_read);
+
+            size_t pos = 0;
+            while (pos + 4 < data.size()) 
+            {
+                size_t start = 0;
+                size_t next_start = 0;
+
+                // 找起始码
+                if (is_start_code4(&data[pos])) 
+                {
+                    start = pos + 4;
+                    pos += 4;
+                } else if (is_start_code3(&data[pos])) 
+                {
+                    start = pos + 3;
+                    pos += 3;
+                } else 
+                {
+                    pos++;
+                    continue;
+                }
+
+                // 找下一个起始码作为结束点
+                next_start = pos;
+                while (next_start + 4 < data.size()) {
+                    if (is_start_code3(&data[next_start]) || is_start_code4(&data[next_start]))
+                        break;
+                    next_start++;
+                }
+
+                if (start >= data.size()) 
+                {
+                    break;
+                }
+
+                uint8_t nalu_header = data[start];
+
+                int f = nalu_header & 0x80; // f should be 0 forbidden_zero_bit
+                int nri = (nalu_header >> 5) & 0x03; // 0~3， low to high
+                int type = nalu_header & 0x1f;
+
+                std::string str_type;
+                switch (type)
+                {
+                    case 1:
+                        str_type = "NonIDR";
+                        break;
+                    case 5:
+                        str_type = "IDR";
+                        break;
+                    case 6:
+                        str_type = "SEI";
+                        break;
+                    case 7:
+                        str_type = "SPS";
+                        break;
+                    case 8:
+                        str_type = "PPS";
+                        break;
+                    case 9:
+                        str_type = "AUD";
+                        break;
+                    default:
+                        str_type = "unknown";
+                        break;
+                }
+                                    
+                char sz_file_naul_name[128] = {0};
+
+               if (f != 0)
+                {
+                    sprintf(sz_file_naul_name, "%s/nalu%d_error", naul_path.c_str(), naul_index++);
+                }
+                else
+                {
+                    sprintf(sz_file_naul_name, "%s/nalu%d_%d_%s", naul_path.c_str(), naul_index++, nri, str_type.c_str());
+                }
+                FILE* file_naul = fopen(sz_file_naul_name, "wb");
+                if (!file_naul)
+                {
+                    std::cerr << "Failed to open file: " << sz_file_naul_name << std::endl;
+                    break;
+                }
+                fwrite("\x00\x00\x00\x01", 4, 1, file_naul);
+                fwrite(&data[start], 1, next_start-start, file_naul);
+                fclose(file_naul);
+
+                pos = next_start;
+            }
+            
         }
         return 1;
     }

@@ -15,6 +15,8 @@ int main(int argc, char* argv[])
         file_output = argv[2];
     }
     stream_project::CStreamTransfer stream_transfer;
+    stream_project::CReadStream read_stream;
+
     std::string fullPath = argv[1];
 
     std::cout <<"filetype:" 
@@ -29,9 +31,9 @@ int main(int argc, char* argv[])
     {
         if (file_output.empty())
         {
-            file_output = "../output/15fps.mp4";
+            file_output = "../output/";
         }
-        stream_transfer.change_fps(file_output, fullPath);
+        read_stream.read_h264_nalu(file_output, fullPath);
     }
     if (file_type == 1)
     {
@@ -169,7 +171,6 @@ int main(int argc, char* argv[])
 
         int function_type = 0;
         std::cin >> function_type;
-        stream_project::CReadStream read_stream;
         switch (function_type)
         {
             case 0:
