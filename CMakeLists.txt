@@ -52,6 +52,8 @@ target_link_libraries(stream_program PRIVATE
     ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libvpx.a
     ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libfdk-aac.a
     ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavutil.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libheif.a
+    ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libde265.a
     pthread
     m
     z

@@ -1,7 +1,7 @@
 #include "stream_transfer.h"
-
+#include "picture_transfer.h"
 namespace stream_project
-    {
+{
     class CAutoDestroyStreamTransfer
     {
     public:
@@ -118,13 +118,14 @@ namespace stream_project
             }
             else
             {
-                return "unkknow pix format";
+                return "unknow pix format";
             }
         }
         else if(stream_type == 1)
         {
-
+            
         }
+        return "unknow pix format";
     }
     void printf_stream_info(const FileFormat& file_format)
     {
@@ -298,7 +299,23 @@ namespace stream_project
         }
     int write_frame_to_png(const char* file_path, AVFrame* src_frame)
     {
-        int width = src_frame->width;
+        CPictureTransfer picture_transfer;
+        if (src_frame->format == AV_PIX_FMT_YUV420P)
+        {   
+            picture_transfer.transfer_raw_to_picture(file_path, AV_PIX_FMT_YUV420P, src_frame->width, src_frame->height, file_path, AV_CODEC_ID_PNG);
+        }
+        else if (src_frame->format == AV_PIX_FMT_RGB24)
+        {
+            picture_transfer.transfer_raw_to_picture(file_path, AV_PIX_FMT_RGB24, src_frame->width, src_frame->height, file_path, AV_CODEC_ID_PNG);
+        }
+        else
+        {
+            std::cout<<"src_frame->format is not YUV420P or RGB24"<<std::endl;
+            return -1;
+        }
+        return 1;
+
+        /*int width = src_frame->width;
         int height = src_frame->height;
 
         CAutoDestroyStreamTransfer auto_destroy;
@@ -323,6 +340,7 @@ namespace stream_project
                 rgb_frame->data, rgb_frame->linesize);
 
         sws_freeContext(sws_ctx);
+
 
         // 3. 查找 PNG 编码器并创建上下文
         const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PNG);
@@ -370,8 +388,8 @@ namespace stream_project
             fclose(f_w);
             av_packet_unref(pkt);
         }
-        return 1;
-    }
+        return 1;*/
+    } 
 
 
     int CStreamTransfer::init()
@@ -595,14 +613,14 @@ namespace stream_project
     {
         return 1;
     }
-    int CStreamTransfer::format_yuv_to_rgb(const std::string& out, const std::string& video_path)
+    int CStreamTransfer::format_yuv_to_rgb(const std::string& out, const std::string& video_path, int width_in, int height_in)
     {
         init();
         CAutoDestroyStreamTransfer auto_destroy_input;
         CAutoDestroyStreamTransfer auto_destroy_output;
 
-        int width = 1920;
-        int height = 1080;
+        int width = width_in;
+        int height = height_in;
         enum AVPixelFormat pix_fmt = AV_PIX_FMT_YUV420P;
 
         FILE* in = fopen(video_path.c_str(), "rb");
@@ -633,53 +651,31 @@ namespace stream_project
         fclose(in);
 
         struct SwsContext* sws_ctx = sws_getContext(
-        width, height, pix_fmt,
+        width, height, AV_PIX_FMT_YUV420P,
         width, height, AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
 
-        AVFrame* rgb_frame = av_frame_alloc();
-        auto_destroy_output.set_frame(rgb_frame);
-        rgb_frame->format = AV_PIX_FMT_RGB24;
-        rgb_frame->width = width;
-        rgb_frame->height = height;
-        av_frame_get_buffer(rgb_frame, 32);
+        int rgb_stride = width * 3;
+        std::vector<uint8_t> rgb_buffer(rgb_stride * height);
 
+
+        uint8_t* rgb_data[1] = { rgb_buffer.data() };
+        int rgb_linesize[1] = { rgb_stride };
         sws_scale(sws_ctx,
                 yuv_frame->data, yuv_frame->linesize, 0, height,
-                rgb_frame->data, rgb_frame->linesize);
+                rgb_data, rgb_linesize);
 
         sws_freeContext(sws_ctx);
 
-        // 6. 编码为 PNG 或 BMP
-        AVCodecID codec_id = AV_CODEC_ID_PNG; // 改成 AV_CODEC_ID_BMP 即可保存 BMP
-        const AVCodec* codec = avcodec_find_encoder(codec_id);
-        AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
-        auto_destroy_output.set_codec_context(codec_ctx);
-        codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
-        codec_ctx->width = width;
-        codec_ctx->height = height;
-        codec_ctx->time_base = (AVRational){1, 25};
-        avcodec_open2(codec_ctx, codec, NULL);
-
-        AVPacket* pkt = av_packet_alloc();
-        auto_destroy_output.set_packet(pkt);
-        pkt->data = NULL;
-        pkt->size = 0;
-
-        avcodec_send_frame(codec_ctx, rgb_frame);
-        if (avcodec_receive_packet(codec_ctx, pkt) == 0) {
-            FILE* f_out = fopen(out.c_str(), "wb");
-            if (f_out)
-            {
-                fwrite(pkt->data, 1, pkt->size, f_out);
-                fclose(f_out);
-            }
-            else
-            { 
-                std::cout<<"write file failed"<<std::endl;   
-            }
-            av_packet_unref(pkt);
+     
+        std::ofstream stream_out(out.c_str(), std::ios::binary);
+         if (stream_out)
+        {
+            stream_out.write(reinterpret_cast<const char*>(rgb_buffer.data()), rgb_buffer.size());
         }
-            
+        else
+        { 
+            std::cout<<"write file failed"<<std::endl;   
+        }        
         std::cout<<"******************format_yuv_to_rgb finished******************"<<std::endl;
         return 1;
     }
@@ -1625,56 +1621,6 @@ namespace stream_project
         av_write_trailer(output_fmt_ctx);
 
         std::cout << "format_A_to_B2 finished " << out << std::endl;
-        return 1;
-    }
-
-    int CStreamTransfer::heic_to_png(const std::string& out, const std::string& video_path)
-    {
-        init();
-        CAutoDestroyStreamTransfer auto_destroy_input;
-        CAutoDestroyStreamTransfer auto_destroy_output;
-
-        AVFormatContext* input_fmt_ctx = NULL;
-        AVFormatContext* fmt_ctx = nullptr;
-        const AVInputFormat* input_fmt = av_find_input_format("heif");
-        int ret = avformat_open_input(&fmt_ctx, video_path.c_str(), input_fmt, NULL);
-        if (ret < 0)
-        {
-            printf_ffmepg_error(ret, "avformat_open_input");
-            return -1;
-        }
-        auto_destroy_input.set_fmt_ctx(input_fmt_ctx, 0);       
-        ret = avformat_find_stream_info(input_fmt_ctx, NULL);
-        if (ret < 0)
-        {
-            printf_ffmepg_error(ret, "avformat_find_stream_info");
-            return -1;
-        }   
-        int video_stream_index = -1;
-        for (unsigned i = 0; i < input_fmt_ctx->nb_streams; ++i)
-        {
-            if (input_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-                video_stream_index = i;
-        }   
-        if (video_stream_index == -1)
-        {
-            std::cerr << "No video stream found\n";
-            return -1;
-        }   
-        const AVCodec *codec = avcodec_find_decoder(input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id);
-        if (!codec)
-        {
-            std::cerr << "Unsupported codec\n";
-            return -1;
-        }
-        std::cout << "codec->name:" << codec->name << std::endl;
-        std::cout << "codec->id:" << codec->id << std::endl;
-        
-        AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
-        auto_destroy_input.set_codec_context(codec_ctx);
-
-        avcodec_parameters_to_context(codec_ctx, input_fmt_ctx->streams[video_stream_index]->codecpar);
-        avcodec_open2(codec_ctx, codec, NULL);
         return 1;
     }
 }

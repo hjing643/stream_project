@@ -3,7 +3,7 @@
 #include "../includeall.h"
 namespace stream_project
 {
-    class CReadStream
+    class CRawStreamRead
     {
         public:
         int init();

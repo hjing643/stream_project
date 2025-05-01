@@ -1,4 +1,4 @@
-#include "read_stream.h"
+#include "rawstream_read.h"
 
 namespace stream_project
 {
@@ -19,12 +19,12 @@ namespace stream_project
         return p[0] == 0x00 && p[1] == 0x00 && p[2] == 0x00 && p[3] == 0x01;
     }
 
-    int CReadStream::init()
+    int CRawStreamRead::init()
     {
         return 1;
     }
 
-    int CReadStream::read_mp4_box(const std::string& box_path, const std::string& video_path)
+    int CRawStreamRead::read_mp4_box(const std::string& box_path, const std::string& video_path)
     {
         FILE* file = fopen(video_path.c_str(), "rb");
         if (!file)
@@ -158,7 +158,7 @@ namespace stream_project
 
     
 
-    int CReadStream::read_h264_nalu(const std::string& naul_path, const std::string& video_path)
+    int CRawStreamRead::read_h264_nalu(const std::string& naul_path, const std::string& video_path)
     {
         std::ifstream file(video_path.c_str(), std::ios::binary);
         if (!file)
@@ -267,6 +267,7 @@ namespace stream_project
             }
             
         }
+        file.close();
         return 1;
     }
 }
