@@ -1,5 +1,6 @@
 #include "stream_transfer.h"
 #include "picture_transfer.h"
+#include "ffmepg_helper.h"
 namespace stream_project
 {
     class CAutoDestroyStreamTransfer
@@ -213,14 +214,14 @@ namespace stream_project
         char finalbuf[256] = {0};
         snprintf(finalbuf, sizeof(finalbuf), "%s faied, error code [%d-%s]", fun_name.c_str(), error_code, errbuf);
 
-        std::cout << finalbuf << std::endl;
+        std::cout << term_color::red << finalbuf << term_color::reset << std::endl;
     }
     int write_packet_to_file(const char* file_path, AVPacket* ptr_packet)
     {
         FILE* f = fopen(file_path, "wb");
         if (!f)
         {
-            std::cout<<"open file "<<file_path << " failed" << std::endl;
+            std::cout << term_color::red << "open file "<<file_path << " failed" << term_color::reset << std::endl;
             return -1;
         }
         fwrite(ptr_packet->data, 1, ptr_packet->size, f);
@@ -234,7 +235,7 @@ namespace stream_project
         FILE* f = fopen(file_path, "wb");
         if (!f)
         {
-            std::cout<<"open file "<<file_path << " failed" << std::endl;
+            std::cout << term_color::red << "open file "<<file_path << " failed" << term_color::reset << std::endl;
             return -1;
         }
         if (ptr_frame->format == AV_PIX_FMT_YUV420P
@@ -258,6 +259,12 @@ namespace stream_project
     }
     int write_frame_to_rgb(const char* file_path, AVFrame* src_frame)
     {
+        if(src_frame->format != AV_PIX_FMT_YUV420P)
+        {
+            std::cout << term_color::red << "src_frame->format is not YUV420P" << term_color::reset << std::endl;
+            return -1;
+        }
+
         int width = src_frame->width;
         int height = src_frame->height;
 
@@ -287,7 +294,7 @@ namespace stream_project
         FILE* f_w = fopen(file_path, "wb");
         if (!f_w)
         {
-            std::cout<<"open file "<<file_path << " failed" << std::endl;
+            std::cout << term_color::red << "open file "<<file_path << " failed" << term_color::reset << std::endl;
             return -1;
         }
         for (int y = 0; y < rgb_frame->height; y++) 
@@ -301,16 +308,24 @@ namespace stream_project
     {
         CPictureTransfer picture_transfer;
         if (src_frame->format == AV_PIX_FMT_YUV420P)
-        {   
-            picture_transfer.transfer_raw_to_picture(file_path, AV_PIX_FMT_YUV420P, src_frame->width, src_frame->height, file_path, AV_CODEC_ID_PNG);
+        {              
+            std::string tmp_path = "../output/tmp.yuv";
+            write_frame_to_yuv(tmp_path.c_str(), src_frame);
+
+            picture_transfer.transfer_raw_to_picture(tmp_path, AV_PIX_FMT_YUV420P, src_frame->width, src_frame->height, file_path, AV_CODEC_ID_PNG);
+            remove(tmp_path.c_str());
         }
         else if (src_frame->format == AV_PIX_FMT_RGB24)
         {
-            picture_transfer.transfer_raw_to_picture(file_path, AV_PIX_FMT_RGB24, src_frame->width, src_frame->height, file_path, AV_CODEC_ID_PNG);
+            std::string tmp_path = "../output/tmp.rgb";
+            write_frame_to_rgb(tmp_path.c_str(), src_frame);
+
+            picture_transfer.transfer_raw_to_picture(tmp_path, AV_PIX_FMT_RGB24, src_frame->width, src_frame->height, file_path, AV_CODEC_ID_PNG);
+            remove(tmp_path.c_str());
         }
         else
         {
-            std::cout<<"src_frame->format is not YUV420P or RGB24"<<std::endl;
+            std::cout << term_color::red << "src_frame->format is not YUV420P or RGB24" << term_color::reset << std::endl;
             return -1;
         }
         return 1;
@@ -469,36 +484,17 @@ namespace stream_project
         file_format.bit_rate = fmt_ctx->bit_rate;
         file_format.start_time = fmt_ctx->start_time;
 
-        int video_stream_index = -1;
-        for (int i = 0; i < fmt_ctx->nb_streams; i++) {
-            AVStream *stream = fmt_ctx->streams[i];
-            if (stream == NULL)
-            {
-                std::cout<<"stream is null"<<std::endl;        
-            }
-            else
-            {
-                if (stream->codecpar != NULL)
-                {
-                    if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
-                    {
-                        video_stream_index = i;
-                        file_format.video_stream = stream;
-                    }
-                    else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) 
-                    {
-                        file_format.audio_stream = stream;  
-                    }
-                    else
-                    {
-                        std::cout<<"stream->codecpar->codec_type is not video or audio:"<<stream->codecpar->codec_type << std::endl;
-                    }
-                }
-                else
-                {
-                    std::cout<<"stream->codecpar is null"<<std::endl; 
-                }
-            }
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(fmt_ctx);
+        if (video_stream_index < 0)
+        {
+            std::cout << term_color::red << "no video stream found" << term_color::reset << std::endl;
+            return -1;
+        }
+        file_format.video_stream = fmt_ctx->streams[video_stream_index];
+        int audio_stream_index = CFFmpegHelper::get_audio_stream_index(fmt_ctx);
+        if (audio_stream_index >= 0)
+        {
+            file_format.audio_stream = fmt_ctx->streams[audio_stream_index];  
         }
         printf_stream_info(file_format);
 
@@ -511,20 +507,19 @@ namespace stream_project
                     break;
                 }
                 AVCodecParameters* codec_parameter = fmt_ctx->streams[video_stream_index]->codecpar;
-                const AVCodec* codec = avcodec_find_decoder(codec_parameter->codec_id);
-                if (!codec) {
-                    std::cerr << "Unsupported codec" << std::endl;
-                    return -1;
+                AVCodecContext* codec_ctx = CFFmpegHelper::create_video_encodec_context(codec_parameter, 
+                                        fmt_ctx->streams[video_stream_index]->time_base, 
+                                        fmt_ctx->streams[video_stream_index]->r_frame_rate);
+                if (!codec_ctx)
+                {
+                    std::cout << term_color::red << "create_video_encodec_context failed" << term_color::reset << std::endl;
+                    break;
                 }
-
-                AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
                 auto_destroy.set_codec_context(codec_ctx);
 
-                avcodec_parameters_to_context(codec_ctx, codec_parameter);
-                ret = avcodec_open2(codec_ctx, codec, NULL);
-                if (ret < 0)
+                if (!codec_ctx)
                 {
-                    printf_ffmepg_error(ret, "avcodec_open2");
+                    std::cout << term_color::red << "create_video_encodec_context failed" << term_color::reset << std::endl;
                     break;
                 }
 
@@ -602,12 +597,18 @@ namespace stream_project
 
     int CStreamTransfer::format_raw_to_mp4(const std::string& out, const std::string& video_path)
     {
-        return format_A_to_B2(out, video_path, "", "mp4");
+        std::cout << "format_raw_to_mp4 " << video_path << std::endl;
+        int ret = format_A_to_B2(out, video_path, "", "mp4");
+        std::cout << "format_raw_to_mp4 finished" << video_path << std::endl;
+        return ret;
     }
 
     int CStreamTransfer::format_raw_to_avi(const std::string& out, const std::string& video_path)
     {
-        return format_A_to_B2(out, video_path, "", "avi");
+        std::cout << "format_raw_to_avi " << video_path << std::endl;
+        int ret = format_A_to_B2(out, video_path, "", "avi");
+        std::cout << "format_raw_to_avi finished" << video_path << std::endl;
+        return ret;
     }
     int CStreamTransfer::format_raw_to_yuv(const std::string& out, const std::string& video_path)
     {
@@ -717,17 +718,10 @@ namespace stream_project
         }
 
         // 找到视频流索引
-        int video_stream_index = -1;
-        for (unsigned int i = 0; i < fmt_ctx->nb_streams; ++i) {
-            if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-                video_stream_index = i;
-                break;
-            }
-        }
-
-        if (video_stream_index == -1) 
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(fmt_ctx);
+        if (video_stream_index < 0)
         {
-            std::cerr << "No video stream found" << std::endl;
+            std::cout << term_color::red << "no video stream found" << term_color::reset << std::endl;
             return -1;
         }
 
@@ -830,56 +824,25 @@ namespace stream_project
             return -1;
         }
 
-        int video_stream_index = -1;
-        for (int i = 0; i < fmt_ctx->nb_streams; i++) 
-        {
-            AVStream *stream = fmt_ctx->streams[i];
-            if (stream == NULL)
-            {
-                std::cout<<"stream is null"<<std::endl;
-                return -1;     
-            }
-            else
-            {
-                if (stream->codecpar != NULL)
-                {
-                    if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
-                    {
-                        video_stream_index = i;
-                        break;
-                    }
-                }
-                else
-                {
-                    std::cout<<"stream->codecpar is null"<<std::endl; 
-                    return -1;
-                }
-            }
-        }
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(fmt_ctx);
         if (video_stream_index < 0)
-        {           
-            std::cout<<"find video stream failed"<<std::endl;
+        {
+            std::cout << term_color::red << "no video stream found" << term_color::reset << std::endl;
             return -1;
         }
 
         AVCodecParameters* codec_parameter = fmt_ctx->streams[video_stream_index]->codecpar;
-        const AVCodec* codec = avcodec_find_decoder(codec_parameter->codec_id);
-        if (!codec) {
-            std::cerr << "Unsupported codec" << std::endl;
+
+        AVCodecContext* codec_ctx = CFFmpegHelper::create_video_decodec_context(codec_parameter,
+                                        fmt_ctx->streams[video_stream_index]->time_base, 
+                                        fmt_ctx->streams[video_stream_index]->r_frame_rate);
+        if (!codec_ctx)
+        {
+            std::cerr << term_color::red << "Failed to create video decodec context" << term_color::reset << std::endl;
             return -1;
         }
-
-        AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
         auto_destroy_output.set_codec_context(codec_ctx);
 
-        avcodec_parameters_to_context(codec_ctx, codec_parameter);
-        
-        ret = avcodec_open2(codec_ctx, codec, NULL);
-        if (ret < 0)
-        {
-            printf_ffmepg_error(ret, "avcodec_open2");
-            return -1;
-        }
 
         AVPacket* pkt = av_packet_alloc();
         AVFrame* frame = av_frame_alloc();
@@ -888,7 +851,7 @@ namespace stream_project
 
         int index = 0;
                         
-        std::cout<<"start decoder"<<std::endl;
+        std::cout << term_color::yellow << "start decoder" << term_color::reset << std::endl;
         bool find = false;
         int find_frame_index = 1; // find the 5 frame
         int current_frame_index = 0;
@@ -899,7 +862,7 @@ namespace stream_project
                 avcodec_send_packet(codec_ctx, pkt);
                 while (avcodec_receive_frame(codec_ctx, frame) == 0) 
                 {
-                    std::cout<<"pict_type:"<<frame->pict_type<< std::endl;
+                    std::cout << term_color::yellow << "pict_type:" << frame->pict_type << term_color::reset << std::endl;
 
                     if (frame->pict_type == frame_type)
                     {
@@ -925,7 +888,7 @@ namespace stream_project
                             }
 
                         }
-                        std::cout<<"find the frame, current_frame_index:"<< current_frame_index << std::endl;
+                        std::cout << term_color::yellow << "find the frame, current_frame_index:" << current_frame_index << term_color::reset << std::endl;
                         break;
                     }
                 }
@@ -935,13 +898,13 @@ namespace stream_project
                 break;
             }
         }
-        std::cout<<"******************get_first_frame_to_yuv finished******************"<<std::endl;
+        std::cout << term_color::yellow << "******************get_first_frame_to_yuv finished******************" << term_color::reset << std::endl;
         return 1;
     }
     int CStreamTransfer::format_webm_to_mp4(const std::string& out, const std::string& video_path)
     {
         return format_A_to_B1(out, video_path, "webm", "mp4", AV_CODEC_ID_H264);
-        std::cout << "format_webm_to_mp4 finished " << out << std::endl;
+        std::cout << term_color::yellow << "format_webm_to_mp4 finished " << out << term_color::reset << std::endl;
         return 1;
     }
 
@@ -967,34 +930,25 @@ namespace stream_project
             return -1;
         }
 
-        int video_stream_index = -1;
-        for (unsigned i = 0; i < input_fmt_ctx->nb_streams; ++i) 
-        {
-            if (input_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-                video_stream_index = i;
-        }
-
-        if (video_stream_index == -1)
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
+        if (video_stream_index < 0)
         {
             std::cerr << "No video stream found\n";
             return -1;
         }
+
         std::string input_format_name = get_input_format_name(input_fmt_ctx);
         // decoder
         AVCodecParameters* codec_parameter = input_fmt_ctx->streams[video_stream_index]->codecpar;
-        const AVCodec* decoder = avcodec_find_decoder(codec_parameter->codec_id); // AV_CODEC_ID_H264,etc  
-        if (!decoder) 
+        AVCodecContext* decoder_ctx = CFFmpegHelper::create_video_decodec_context(codec_parameter, 
+                                        input_fmt_ctx->streams[video_stream_index]->time_base, 
+                                        input_fmt_ctx->streams[video_stream_index]->r_frame_rate);
+        if (!decoder_ctx)
         {
-            std::cerr << "Unsupported codec" << std::endl;
+            std::cerr << "Failed to create video decodec context" << std::endl;
             return -1;
         }
-        AVCodecContext* decoder_ctx = avcodec_alloc_context3(decoder);
         auto_destroy_input.set_codec_context(decoder_ctx);
-
-        avcodec_parameters_to_context(decoder_ctx, codec_parameter);
-        // avcodec_parameters_to_context only set resolution, not set time_base
-        decoder_ctx->time_base = input_fmt_ctx->streams[video_stream_index]->time_base;
-        avcodec_open2(decoder_ctx, decoder, NULL);
 
         // encoder
         AVFormatContext* output_fmt_ctx = NULL;
@@ -1058,8 +1012,15 @@ namespace stream_project
         avcodec_parameters_from_context(out_stream->codecpar, encoder_ctx);
         out_stream->time_base = encoder_ctx->time_base;
 
-        if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
-            avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+        if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
+        {
+            ret = avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0 || !output_fmt_ctx->pb)
+            {
+                printf_ffmepg_error(ret, "avio_open");
+                std::cout << "avio_open failed" << out << std::endl;
+                return -1;
+            }
         }
         avcodec_open2(encoder_ctx, encoder, NULL);
 
@@ -1147,18 +1108,13 @@ namespace stream_project
             return -1;
         }
 
-        int video_stream_index = -1;
-        for (unsigned i = 0; i < input_fmt_ctx->nb_streams; ++i) 
-        {
-            if (input_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-                video_stream_index = i;
-        }
-
-        if (video_stream_index == -1)
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
+        if (video_stream_index < 0)
         {
             std::cerr << "No video stream found\n";
             return -1;
         }
+
         AVCodecParameters* codec_parameter = input_fmt_ctx->streams[video_stream_index]->codecpar;
 
         // new file
@@ -1171,8 +1127,15 @@ namespace stream_project
         avcodec_parameters_copy(out_stream->codecpar, input_fmt_ctx->streams[video_stream_index]->codecpar);
         out_stream->time_base = input_fmt_ctx->streams[video_stream_index]->time_base;
 
-        if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) {
-            avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+        if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
+        {
+            ret = avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0 || !output_fmt_ctx->pb)
+            {
+                printf_ffmepg_error(ret, "avio_open");
+                std::cout << term_color::red << "avio_open failed" << term_color::reset << out << std::endl;
+                return -1;
+            }
         }
 
         avformat_write_header(output_fmt_ctx, nullptr);
@@ -1234,41 +1197,26 @@ namespace stream_project
             return -1;
         }
 
-        int video_stream_index = -1;
-        int audio_stream_index = -1;
-        for (unsigned i = 0; i < input_fmt_ctx->nb_streams; ++i) 
-        {
-            if (input_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-            {
-                video_stream_index = i; 
-            }   
-            else if (input_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
-            {
-                audio_stream_index = i;
-            }
-        }
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
+        int audio_stream_index = CFFmpegHelper::get_audio_stream_index(input_fmt_ctx);
 
-        if (video_stream_index == -1) {
-            std::cerr << "No video stream found\n";
+        if (video_stream_index < 0) 
+        {
+            std::cerr << term_color::red << "No video stream found\n" << term_color::reset;
             return -1;
         }
 
         // --- 创建解码器 ---
-        const AVCodec* video_decoder = avcodec_find_decoder(input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id);
-        if (!video_decoder) 
+        AVCodecContext* video_dec_ctx = CFFmpegHelper::create_video_decodec_context(input_fmt_ctx->streams[video_stream_index]->codecpar, 
+                                        input_fmt_ctx->streams[video_stream_index]->time_base, 
+                                        input_fmt_ctx->streams[video_stream_index]->r_frame_rate);
+        if (!video_dec_ctx)
         {
-            std::cerr << "Unsupported video codec1 " << input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id << std::endl;
+            std::cerr << term_color::red << "Failed to create video decodec context" << term_color::reset << std::endl;
             return -1;
         }
-        AVCodecContext* video_dec_ctx = avcodec_alloc_context3(video_decoder);
         auto_destroy_input.set_codec_context(video_dec_ctx);
 
-        avcodec_parameters_to_context(video_dec_ctx, input_fmt_ctx->streams[video_stream_index]->codecpar);
-        // there is no framerate and time_base in video_dec_ctx, we need to set it
-        // r_frame_rate and time_base is from AVStream rather AVCodec.
-        video_dec_ctx->time_base = input_fmt_ctx->streams[video_stream_index]->time_base;
-        video_dec_ctx->framerate = input_fmt_ctx->streams[video_stream_index]->r_frame_rate;
-        avcodec_open2(video_dec_ctx, video_decoder, NULL);
 
         // --- 创建输出上下文 ---
         AVFormatContext* output_fmt_ctx = NULL;
@@ -1294,7 +1242,7 @@ namespace stream_project
         const AVCodec* video_encoder = avcodec_find_encoder(dst_codec_id);
         if (!video_encoder) 
         {
-            std::cerr << "Unsupported video codec" << dst_codec_id << std::endl;
+            std::cerr << term_color::red << "Unsupported video codec" << term_color::reset << dst_codec_id << std::endl;
             return -1;
         }
         AVCodecContext* video_enc_ctx = avcodec_alloc_context3(video_encoder);
@@ -1340,7 +1288,13 @@ namespace stream_project
         // 设置输出文件
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
         {
-            avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            ret = avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0 || !output_fmt_ctx->pb)
+            {
+                printf_ffmepg_error(ret, "avio_open");
+                std::cout << term_color::red << "avio_open failed" << term_color::reset << out << std::endl;
+                return -1;
+            }
         }
         
         // output_fmt_ctx modify to 1/16000, before is 1/1000
@@ -1487,6 +1441,7 @@ namespace stream_project
         if (ret < 0 || !input_fmt_ctx)
         {
             printf_ffmepg_error(ret, "avformat_open_input");
+            std::cout << term_color::red << "avformat_open_input failed" << term_color::reset << video_path << std::endl;
             return -1;
 
         }
@@ -1494,6 +1449,7 @@ namespace stream_project
         if (ret < 0)
         {
             printf_ffmepg_error(ret, "avformat_find_stream_info");
+            std::cout << term_color::red << "avformat_find_stream_info failed" << term_color::reset << video_path << std::endl;
             return -1;
         }
 
@@ -1524,7 +1480,7 @@ namespace stream_project
             AVStream* in_stream = input_fmt_ctx->streams[i];
             AVStream* out_stream = avformat_new_stream(output_fmt_ctx, nullptr);
             if (!out_stream) {
-                std::cerr << "Failed allocating output stream" << std::endl;
+                std::cerr << term_color::red << "Failed allocating output stream" << term_color::reset << std::endl;
                 return -1;
             }
             if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
@@ -1533,7 +1489,7 @@ namespace stream_project
                 ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
                 if (ret < 0) 
                 {
-                    std::cerr << "Failed to copy codec parameters" << std::endl;
+                    std::cerr << term_color::red << "Failed to copy codec parameters" << term_color::reset << std::endl;
                     return -1;
                 }
                 out_stream->codecpar->codec_tag = 0;
@@ -1542,7 +1498,7 @@ namespace stream_project
                 // if src_fmt pts, dst is not valid(raw data), set to 25fps
                 if(out_stream->time_base.num <= 0 || out_stream->time_base.den <= 0)
                 {
-                    std::cout << "src_fmt pts, dst is not valid(raw data), set to 25fps" << std::endl;
+                    std::cout << term_color::yellow << "src_fmt pts, dst is not valid(raw data), set to 25fps" << term_color::reset << std::endl;
                     AVRational mp4_time_base = (AVRational){1, 90000};
                     out_stream->r_frame_rate = (AVRational){25, 1};
                     out_stream->avg_frame_rate = (AVRational){25, 1};
@@ -1553,7 +1509,7 @@ namespace stream_project
                     out_stream->codecpar->codec_tag = av_codec_get_tag(output_fmt_ctx->oformat->codec_tag, out_stream->codecpar->codec_id);
                     if (out_stream->codecpar->codec_tag == 0) 
                     {
-                        std::cerr << "Could not find codec tag for codec id " << out_stream->codecpar->codec_id << "\n";
+                        std::cerr << term_color::red << "Could not find codec tag for codec id " << out_stream->codecpar->codec_id << term_color::reset << "\n";
                         return -1;
                     }
                 }
@@ -1562,14 +1518,20 @@ namespace stream_project
 
         if (video_stream_index == -1) 
         {
-            std::cerr << "No video stream found" << std::endl;
+            std::cerr << term_color::red << "No video stream found" << term_color::reset << std::endl;
             return -1;
         }
         
         // 设置输出文件
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
         {
-            avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            ret = avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0 || !output_fmt_ctx->pb)
+            {
+                printf_ffmepg_error(ret, "avio_open");
+                std::cout << term_color::red << "avio_open failed" << term_color::reset  << out << std::endl;
+                return -1;
+            }
         }
         
         // output_fmt_ctx modify to 1/16000, before is 1/1000

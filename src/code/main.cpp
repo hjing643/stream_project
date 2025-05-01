@@ -24,7 +24,7 @@ int main(int argc, char* argv[])
     std::string fullPath = argv[1];
 
     std::cout <<"filetype:" 
-        << "\ntest:0"
+        << "\ntest_all:0"
         << "\nstream_transcode:1"
         << "\nrawstream_read:2"
         << std::endl;
@@ -33,11 +33,26 @@ int main(int argc, char* argv[])
     std::cin >> file_type;
     if (file_type == 0)
     {
-        if (file_output.empty())
-        {
-            file_output = "../output/heic.jpg";
-        }
-        heic_stream_read.transfer_heic_to_picture(file_output, fullPath, AV_CODEC_ID_MJPEG);
+        stream_transfer.analyze_file("../fileDepends/videos/h264.h264", false);
+        stream_transfer.analyze_file("../fileDepends/videos/person1.mp4", false);
+        stream_transfer.analyze_file("../fileDepends/videos/person1.webm", false);
+
+        stream_transfer.format_raw_to_mp4("/home/gene/mnt-231-ubunto/output/h264.mp4", "../fileDepends/videos/h264.h264");
+        stream_transfer.format_mp4_to_raw("/home/gene/mnt-231-ubunto/output/person1.h264", "../fileDepends/videos/person1.mp4");
+        stream_transfer.format_raw_to_avi("/home/gene/mnt-231-ubunto/output/h264.avi", "../fileDepends/videos/h264.h264");
+        stream_transfer.format_webm_to_mp4("/home/gene/mnt-231-ubunto/output/mp4_from_webm.mp4", "../fileDepends/videos/person1.webm");
+
+        stream_transfer.change_resolution("/home/gene/mnt-231-ubunto/output/720P.mp4", "../fileDepends/videos/person1.mp4", 1280, 720);
+        stream_transfer.change_fps("/home/gene/mnt-231-ubunto/output/15fps.mp4", "../fileDepends/videos/person1.mp4");
+
+
+        heic_stream_read.transfer_heic_to_picture("/home/gene/mnt-231-ubunto/output/1.jpg", "../fileDepends/videos/1.HEIC", AV_CODEC_ID_MJPEG);
+        heic_stream_read.transfer_heic_to_picture("/home/gene/mnt-231-ubunto/output/1.png", "../fileDepends/videos/1.HEIC", AV_CODEC_ID_PNG);
+
+
+        stream_transfer.get_first_frame("/home/gene/mnt-231-ubunto/output/I.png", "../fileDepends/videos/person1.mp4", 1, 3);
+        stream_transfer.get_first_frame("/home/gene/mnt-231-ubunto/output/P.png", "../fileDepends/videos/person1.mp4", 2, 3);
+        return 0;
     }
     if (file_type == 1)
     {

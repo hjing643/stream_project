@@ -1,5 +1,5 @@
 #include "picture_transfer.h"
-
+#include "ffmepg_helper.h"
 namespace stream_project
 {
     class CAutoDestroyPictureTransfer
@@ -61,7 +61,7 @@ namespace stream_project
         && dst_codec_id != AV_CODEC_ID_PNG
         && dst_codec_id != AV_CODEC_ID_BMP)
         {
-            std::cout << "dst_codec_id is not supported" << dst_codec_id << std::endl;
+            std::cout << term_color::red << "dst_codec_id is not supported" << term_color::reset << dst_codec_id << std::endl;
             return -1;
         }
 
@@ -69,7 +69,7 @@ namespace stream_project
         std::ofstream out(output_path, std::ios::binary);
         if (!in.is_open() || !out.is_open())
         {
-            std::cout << "failed to open file" << input_path << " or " << output_path << std::endl;
+            std::cout << term_color::red << "failed to open file" << term_color::reset << input_path << " or " << output_path << std::endl;
             return -1;
         }
 
@@ -80,7 +80,7 @@ namespace stream_project
         const AVCodec* codec = avcodec_find_encoder(dst_codec_id);
         if (!codec) 
         {
-            std::cout << "not find codec" << dst_codec_id << std::endl;
+            std::cout << term_color::red << "not find codec" << term_color::reset << dst_codec_id << std::endl;
             return -1;
         }
         CAutoDestroyPictureTransfer auto_destroy_input;
@@ -155,7 +155,7 @@ namespace stream_project
         if (avcodec_open2(codec_ctx, codec, NULL) < 0) 
         {
             delete[] buffer;
-            std::cout << "open codec failed" << std::endl;
+            std::cout << term_color::red << "open codec failed" << term_color::reset << std::endl;
             return -1;
         }
 
@@ -165,27 +165,27 @@ namespace stream_project
         if (!pkt) 
         {
             delete[] buffer;
-            std::cout << "alloc packet failed" << std::endl;
+            std::cout << term_color::red << "alloc packet failed" << term_color::reset << std::endl;
             return -1;
         }
 
         if (avcodec_send_frame(codec_ctx, dst_frame) < 0) 
         {
             delete[] buffer;
-            std::cout << "send frame failed" << std::endl;
+            std::cout << term_color::red << "send frame failed" << term_color::reset << std::endl;
             return -1;
         }
 
         if (avcodec_receive_packet(codec_ctx, pkt) == 0) 
         {
-            std::cout << "pkt->size: " << pkt->size << std::endl;
+            std::cout << term_color::yellow << "pkt->size: " << pkt->size << term_color::reset << std::endl;
             // 5. 写入 PNG 文件
             out.write(reinterpret_cast<const char*>(pkt->data), pkt->size);
             av_packet_unref(pkt);
         }
         
         delete[] buffer;
-        std::cout << "transfer_raw_to_picture finished" << std::endl;
+        std::cout << term_color::yellow << "transfer_raw_to_picture finished" << term_color::reset << std::endl;
         return 1;
     }
 }

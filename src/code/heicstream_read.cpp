@@ -1,5 +1,6 @@
 #include "heicstream_read.h"
 #include "picture_transfer.h"
+#include "ffmepg_helper.h"
 namespace stream_project
 {
     class CAutoDestroyHeicStreamRead
@@ -60,26 +61,26 @@ namespace stream_project
         heif_context* ctx = heif_context_alloc();
         auto_destroy_heic_stream_read.set_ctx(ctx);
         if (!ctx) {
-            std::cerr << "Failed to allocate heif_context\n";
+            std::cerr << term_color::red << "Failed to allocate heif_context\n" << term_color::reset;
             return -1;
         }
 
         heif_error err = heif_context_read_from_file(ctx, heic_path.c_str(), nullptr);
         if (err.code != heif_error_Ok) {
-            std::cerr << "Failed to read HEIC: " << err.message << "\n";
+            std::cerr << term_color::red << "Failed to read HEIC: " << err.message << term_color::reset << "\n";
             return -1;
         }
 
         heif_image_handle* handle = nullptr;
         err = heif_context_get_primary_image_handle(ctx, &handle);
         if (err.code != heif_error_Ok) {
-            std::cerr << "Failed to get primary image handle\n";
+            std::cerr << term_color::red << "Failed to get primary image handle\n" << term_color::reset;
             return -1;
         }
         auto_destroy_heic_stream_read.set_handle(handle);
 
         int thumb_count = heif_image_handle_get_number_of_thumbnails(handle);
-        std::cout << "thumb_count: " << thumb_count << std::endl;
+        std::cout << term_color::yellow << "thumb_count: " << thumb_count << term_color::reset << std::endl;
 
 
         heif_image* img;
@@ -92,14 +93,14 @@ namespace stream_project
         int width = heif_image_get_width(img, heif_channel_interleaved);
         int height = heif_image_get_height(img, heif_channel_interleaved);
 
-        std::cout << "Image size: " << width << "x" << height << ", Stride: " << stride << "\n";
+        std::cout << term_color::yellow << "Image size: " << width << "x" << height << ", Stride: " << stride << term_color::reset << "\n";
 
         // 6. 写入完整的像素数据
         if (dst_codec_id == AV_CODEC_ID_RAWVIDEO)
         {
             std::ofstream out(output_path, std::ios::binary);
             if (!out.is_open()) {
-                std::cerr << "Failed to open output file" << output_path << std::endl;
+                std::cerr << term_color::red << "Failed to open output file" << output_path << term_color::reset << std::endl;
                 return -1;
             }
             // 逐行写入（处理可能的 stride 填充）
@@ -113,7 +114,7 @@ namespace stream_project
             std::string tmp_path = "../output/tmp.rgb";
             std::ofstream out(tmp_path.c_str(), std::ios::binary);
             if (!out.is_open()) {
-                std::cerr << "Failed to open output file" << tmp_path << std::endl;
+                std::cerr << term_color::red << "Failed to open output file" << tmp_path << term_color::reset << std::endl;
                 return -1;
             }
             // 逐行写入（处理可能的 stride 填充）
@@ -127,7 +128,7 @@ namespace stream_project
             remove(tmp_path.c_str());
         }      
 
-        std::cout << "read_heic_stream finished " << output_path << "\n";
+        std::cout << term_color::yellow << "read_heic_stream finished " << output_path << term_color::reset << "\n";
         return 1;
     }    
 }
