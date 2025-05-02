@@ -1478,13 +1478,16 @@ namespace stream_project
         for (unsigned int i = 0; i < input_fmt_ctx->nb_streams; i++) 
         {
             AVStream* in_stream = input_fmt_ctx->streams[i];
-            AVStream* out_stream = avformat_new_stream(output_fmt_ctx, nullptr);
-            if (!out_stream) {
-                std::cerr << term_color::red << "Failed allocating output stream" << term_color::reset << std::endl;
-                return -1;
-            }
+           
             if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
             {
+                AVStream* out_stream = avformat_new_stream(output_fmt_ctx, nullptr);
+                if (!out_stream) 
+                {
+                    std::cerr << term_color::red << "Failed allocating output stream" << term_color::reset << std::endl;
+                    return -1;
+                }
+                
                 // 复制流参数
                 ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
                 if (ret < 0) 
@@ -1534,9 +1537,11 @@ namespace stream_project
             }
         }
         
-        // output_fmt_ctx modify to 1/16000, before is 1/1000
+        // output_fmt_ctx modify the time base even i set to 1/90000
         // 1/1000 is not a good choice
         avformat_write_header(output_fmt_ctx, NULL); 
+
+        std::cout << term_color::yellow << "output_fmt_ctx->time_base:" << output_fmt_ctx->streams[0]->time_base.num << "/" << output_fmt_ctx->streams[0]->time_base.den << term_color::reset << std::endl;
 
         AVPacket* input_packet = av_packet_alloc();
         auto_destroy_input.set_packet(input_packet);
@@ -1548,7 +1553,7 @@ namespace stream_project
             if (input_packet->stream_index == video_stream_index) 
             {
                 AVStream* in_stream = input_fmt_ctx->streams[input_packet->stream_index];
-                AVStream* out_stream = output_fmt_ctx->streams[input_packet->stream_index];
+                AVStream* out_stream = output_fmt_ctx->streams[0];
 
                 // re-calculate PTS/DTS
                 input_packet->pts = av_rescale_q_rnd(input_packet->pts, in_stream->time_base, out_stream->time_base, 
@@ -1560,12 +1565,11 @@ namespace stream_project
 
                 if (input_packet->pts == AV_NOPTS_VALUE)
                 {                  
-                    int frame_duration = 90000 / 25;   // 每帧 = 3600 时间单位
+                    int frame_duration = output_fmt_ctx->streams[0]->time_base.den / 25;   // 每帧 = 3600 时间单位
                     input_packet->pts = (frame_index * frame_duration);
                     input_packet->dts = input_packet->pts;
                     input_packet->duration = frame_duration;
                     input_packet->pos = -1;
-                    //std::cout << "input_packet->pts1:" << input_packet->pts << std::endl;                
                 }
                 else
                 {
