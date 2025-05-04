@@ -29,7 +29,10 @@ make -j$(nproc)
 make install
 
 
-4. fdk-aac, libpng, libjpeg, OpenCL, CUDA/NvCodec，libsrtp, libheif, libde265
+4. fdk-aac, libpng, libjpeg, OpenCL, CUDA/NvCodec，libsrtp, libheif, libde265，freetype 
+
+./configure --prefix=$HOME/third-party/ffmpeg6.0/linux_build --enable-static --disable-shared
+
 
 
 5. ffmpeg(only master version support libheif)
@@ -38,7 +41,7 @@ PKG_CONFIG_PATH="$HOME/third-party/ffmpeg6.0/linux_build/lib/pkgconfig"
 ./configure \
   --prefix="$HOME/third-party/ffmpeg6.0/linux_build" \
   --pkg-config-flags="--static" \
-  --extra-cflags="-I$HOME/third-party/ffmpeg6.0/linux_build/include" \
+  --extra-cflags="-I$HOME/third-party/ffmpeg6.0/linux_build/include -I$HOME/third-party/ffmpeg6.0/linux_build/include/freetype2"
   --extra-ldflags="-L$HOME/third-party/ffmpeg6.0/linux_build/lib" \
   --extra-libs="-lpthread -lm" \
   --bindir="$HOME/third-party/ffmpeg6.0/linux_build/bin" \
@@ -48,9 +51,9 @@ PKG_CONFIG_PATH="$HOME/third-party/ffmpeg6.0/linux_build/lib/pkgconfig"
   --enable-libx265 \
   --enable-libvpx \
   --enable-libfdk-aac \
+  --enable-libfreetype \
   --enable-static \
   --disable-shared \
   --disable-debug \
   --disable-doc \
-  --disable-asm \
-  --enable-libheif
+  --disable-asm

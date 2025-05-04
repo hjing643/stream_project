@@ -189,7 +189,8 @@ namespace stream_project
                 std::cout << "nb_frames:" << file_format.video_stream->nb_frames << std::endl;      
                 std::cout << "start_time:" << file_format.video_stream->start_time << std::endl;      
                 std::cout << "sample_aspect_ratio:" << file_format.video_stream->sample_aspect_ratio.num
-                    << "/" << file_format.video_stream->sample_aspect_ratio.den << std::endl;      
+                    << "/" << file_format.video_stream->sample_aspect_ratio.den << std::endl; 
+                std::cout << "bit_rate:" << file_format.video_stream->codecpar->bit_rate << std::endl;
             }
             else
             {
@@ -506,10 +507,7 @@ namespace stream_project
                 {
                     break;
                 }
-                AVCodecParameters* codec_parameter = fmt_ctx->streams[video_stream_index]->codecpar;
-                AVCodecContext* codec_ctx = CFFmpegHelper::create_video_encodec_context(codec_parameter, 
-                                        fmt_ctx->streams[video_stream_index]->time_base, 
-                                        fmt_ctx->streams[video_stream_index]->r_frame_rate);
+                AVCodecContext* codec_ctx = CFFmpegHelper::create_video_decodec_context(fmt_ctx->streams[video_stream_index], true);
                 if (!codec_ctx)
                 {
                     std::cout << term_color::red << "create_video_encodec_context failed" << term_color::reset << std::endl;
@@ -540,7 +538,7 @@ namespace stream_project
                         {
                             idr_mark = true;
                         }
-                        snprintf(finalbuf, sizeof(finalbuf), "%d IDR[%d],size[%d],pts[%ld],dts[%ld],duration[%ld],pos[%ld]", 
+                        snprintf(finalbuf, sizeof(finalbuf), "AVPacket[%d] IDR[%d],size[%d],pts[%ld],dts[%ld],duration[%ld],pos[%ld]", 
                         index++,
                         idr_mark,
                         pkt->size,
@@ -833,9 +831,7 @@ namespace stream_project
 
         AVCodecParameters* codec_parameter = fmt_ctx->streams[video_stream_index]->codecpar;
 
-        AVCodecContext* codec_ctx = CFFmpegHelper::create_video_decodec_context(codec_parameter,
-                                        fmt_ctx->streams[video_stream_index]->time_base, 
-                                        fmt_ctx->streams[video_stream_index]->r_frame_rate);
+        AVCodecContext* codec_ctx = CFFmpegHelper::create_video_decodec_context(fmt_ctx->streams[video_stream_index], true);
         if (!codec_ctx)
         {
             std::cerr << term_color::red << "Failed to create video decodec context" << term_color::reset << std::endl;
@@ -937,12 +933,8 @@ namespace stream_project
             return -1;
         }
 
-        std::string input_format_name = get_input_format_name(input_fmt_ctx);
         // decoder
-        AVCodecParameters* codec_parameter = input_fmt_ctx->streams[video_stream_index]->codecpar;
-        AVCodecContext* decoder_ctx = CFFmpegHelper::create_video_decodec_context(codec_parameter, 
-                                        input_fmt_ctx->streams[video_stream_index]->time_base, 
-                                        input_fmt_ctx->streams[video_stream_index]->r_frame_rate);
+        AVCodecContext* decoder_ctx = CFFmpegHelper::create_video_decodec_context(input_fmt_ctx->streams[video_stream_index], true);
         if (!decoder_ctx)
         {
             std::cerr << "Failed to create video decodec context" << std::endl;
@@ -950,67 +942,47 @@ namespace stream_project
         }
         auto_destroy_input.set_codec_context(decoder_ctx);
 
-        // encoder
-        AVFormatContext* output_fmt_ctx = NULL;
-        avformat_alloc_output_context2(&output_fmt_ctx, NULL, input_format_name.c_str(), out.c_str());
-        auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
-
-        const AVCodec* encoder = avcodec_find_encoder(codec_parameter->codec_id);
+        const AVCodec* encoder = avcodec_find_encoder(input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id);
         if (!encoder) 
         {
             std::cerr << "Unsupported encoder" << std::endl;
             return -1;
         }
-        AVCodecContext* encoder_ctx = avcodec_alloc_context3(encoder);
+        // encoder
+        AVCodecContext* encoder_ctx = CFFmpegHelper::create_video_encodec_context(input_fmt_ctx->streams[video_stream_index], false);
         auto_destroy_output.set_codec_context(encoder_ctx);
-
-        //encoder_ctx->codec_id = decoder_ctx->codec_id; // avcodec_alloc_context3 has set it
-        //encoder_ctx->codec_type = decoder_ctx->codec_type;
-        encoder_ctx->pix_fmt = decoder_ctx->pix_fmt;
-        encoder_ctx->time_base = decoder_ctx->time_base;
-        encoder_ctx->framerate = decoder_ctx->framerate;
-        encoder_ctx->bit_rate = decoder_ctx->bit_rate;
-        encoder_ctx->gop_size = decoder_ctx->gop_size;
-        encoder_ctx->profile = decoder_ctx->profile;
-        encoder_ctx->level = decoder_ctx->level;
         // width/height自己设置
         encoder_ctx->width = target_width;
         encoder_ctx->height = target_height;
 
-        std::cout << "decoder_ctx->time_base:" << decoder_ctx->time_base.num << "/" << decoder_ctx->time_base.den << std::endl;
-        std::cout << "decoder_ctx->bit_rate:" << decoder_ctx->bit_rate << std::endl;
-        std::cout << "decoder_ctx->level:" << decoder_ctx->level << std::endl;
-        std::cout << "decoder_ctx->framerate:" << decoder_ctx->framerate.num << "/" << decoder_ctx->framerate.den << std::endl;
+        std::cout << "encoder_ctx->timebase(before open): " << encoder_ctx->time_base.num << "/" << encoder_ctx->time_base.den << std::endl;
+        encoder_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER; // it's very important, otherwise the output file will be invalid
 
-        if (decoder_ctx->time_base.num > 0 && decoder_ctx->time_base.den > 0) {
-            encoder_ctx->time_base = decoder_ctx->time_base;
-        }
-        else
+        ret = avcodec_open2(encoder_ctx, encoder, NULL);
+        if (ret < 0)
         {
-            encoder_ctx->time_base = AVRational{1, 25}; // 默认25fps
+            printf_ffmepg_error(ret, "avcodec_open2");
+            return -1;
         }
-
-        if (decoder_ctx->framerate.num > 0 && decoder_ctx->framerate.den > 0)
-        {
-            encoder_ctx->framerate = decoder_ctx->framerate;
-        }
-        else
-        {
-            encoder_ctx->framerate = AVRational{1, 25}; // 默认25fps
-        }
+        std::cout << "encoder_ctx->timebase(after open): " << encoder_ctx->time_base.num << "/" << encoder_ctx->time_base.den << std::endl;
         
-        std::cout << "encoder_ctx->framerate:" << encoder_ctx->framerate.num << "/" << encoder_ctx->framerate.den << std::endl;
-
         // extradata要手动malloc+copy, resolution changed, we can't copy decoder_ctx->extradata to encoder_ctx->extradata
         /*if (decoder_ctx->extradata && decoder_ctx->extradata_size > 0) {
             encoder_ctx->extradata = (uint8_t*)av_mallocz(decoder_ctx->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
             memcpy(encoder_ctx->extradata, decoder_ctx->extradata, decoder_ctx->extradata_size);
             encoder_ctx->extradata_size = decoder_ctx->extradata_size;
         }*/
+        
+        AVFormatContext* output_fmt_ctx = NULL;
+        std::string input_format_name = get_input_format_name(input_fmt_ctx);
+        avformat_alloc_output_context2(&output_fmt_ctx, NULL, input_format_name.c_str(), out.c_str());
+        auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
 
         AVStream* out_stream = avformat_new_stream(output_fmt_ctx, encoder);
         avcodec_parameters_from_context(out_stream->codecpar, encoder_ctx);
         out_stream->time_base = encoder_ctx->time_base;
+        out_stream->r_frame_rate = encoder_ctx->framerate;
+        out_stream->avg_frame_rate = encoder_ctx->framerate;
 
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
         {
@@ -1022,9 +994,14 @@ namespace stream_project
                 return -1;
             }
         }
-        avcodec_open2(encoder_ctx, encoder, NULL);
 
-        avformat_write_header(output_fmt_ctx, NULL);    
+       
+        ret = avformat_write_header(output_fmt_ctx, NULL);    
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_write_header");
+            return -1;
+        }
 
         AVPacket* packet = av_packet_alloc();
         auto_destroy_input.set_packet(packet);
@@ -1041,7 +1018,12 @@ namespace stream_project
         output_frame->format = encoder_ctx->pix_fmt;
         output_frame->width = encoder_ctx->width;
         output_frame->height = encoder_ctx->height;
-        av_frame_get_buffer(output_frame, 32);
+        ret = av_frame_get_buffer(output_frame, 32);
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "av_frame_get_buffer");
+            return -1;
+        }
 
         struct SwsContext* sws_ctx = sws_getContext(
             decoder_ctx->width, decoder_ctx->height, decoder_ctx->pix_fmt,
@@ -1059,7 +1041,8 @@ namespace stream_project
                     sws_scale(sws_ctx,
                         frame->data, frame->linesize, 0, frame->height,
                         output_frame->data, output_frame->linesize);
-                    output_frame->pts = frame->pts;
+                        
+                    output_frame->pts = frame->pts; // 设置pts based on new timebase??
 
                     avcodec_send_frame(encoder_ctx, output_frame);
 
@@ -1069,7 +1052,12 @@ namespace stream_project
                         av_interleaved_write_frame(output_fmt_ctx, output_packet);
                         av_packet_unref(output_packet);
                     }
+                    // we can't unref output_frame, because it will be reused
+                    // output_frame is alloc by av_frame_get_buffer
+                    // frame buffer we can use unref, because it's alloc by avcodec_receive_frame
+                    //av_frame_unref(output_frame);
                 }
+                av_frame_unref(frame);
             }
             av_packet_unref(packet);
         }
@@ -1081,7 +1069,12 @@ namespace stream_project
             av_packet_unref(output_packet);
         }
 
-        av_write_trailer(output_fmt_ctx);
+        ret = av_write_trailer(output_fmt_ctx);
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "av_write_trailer");
+            return -1;
+        }
 
         std::cout << "change_resolution finished " << out << std::endl;
         return 1;
@@ -1138,7 +1131,12 @@ namespace stream_project
             }
         }
 
-        avformat_write_header(output_fmt_ctx, nullptr);
+        ret = avformat_write_header(output_fmt_ctx, nullptr);
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_write_header");
+            return -1;
+        }
 
         AVPacket* packet = av_packet_alloc();
         auto_destroy_input.set_packet(packet);
@@ -1207,9 +1205,7 @@ namespace stream_project
         }
 
         // --- 创建解码器 ---
-        AVCodecContext* video_dec_ctx = CFFmpegHelper::create_video_decodec_context(input_fmt_ctx->streams[video_stream_index]->codecpar, 
-                                        input_fmt_ctx->streams[video_stream_index]->time_base, 
-                                        input_fmt_ctx->streams[video_stream_index]->r_frame_rate);
+        AVCodecContext* video_dec_ctx = CFFmpegHelper::create_video_decodec_context(input_fmt_ctx->streams[video_stream_index], true);
         if (!video_dec_ctx)
         {
             std::cerr << term_color::red << "Failed to create video decodec context" << term_color::reset << std::endl;
@@ -1299,7 +1295,12 @@ namespace stream_project
         
         // output_fmt_ctx modify to 1/16000, before is 1/1000
         // 1/1000 is not a good choice
-        avformat_write_header(output_fmt_ctx, NULL); 
+        ret = avformat_write_header(output_fmt_ctx, NULL); 
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_write_header");
+            return -1;
+        }
 
         AVPacket* input_packet = av_packet_alloc();
         auto_destroy_input.set_packet(input_packet);
@@ -1539,7 +1540,12 @@ namespace stream_project
         
         // output_fmt_ctx modify the time base even i set to 1/90000
         // 1/1000 is not a good choice
-        avformat_write_header(output_fmt_ctx, NULL); 
+        ret = avformat_write_header(output_fmt_ctx, NULL); 
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_write_header");
+            return -1;
+        }
 
         std::cout << term_color::yellow << "output_fmt_ctx->time_base:" << output_fmt_ctx->streams[0]->time_base.num << "/" << output_fmt_ctx->streams[0]->time_base.den << term_color::reset << std::endl;
 

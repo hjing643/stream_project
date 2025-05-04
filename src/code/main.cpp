@@ -4,6 +4,7 @@
 #include "rawstream_read.h"
 #include "heicstream_read.h"
 #include "picture_transfer.h"
+#include "stream_filtergraph.h"
 int main(int argc, char* argv[])
 {
     if (argc < 2)
@@ -27,11 +28,18 @@ int main(int argc, char* argv[])
         << "\ntest_all:0"
         << "\nstream_transcode:1"
         << "\nrawstream_read:2"
+        << "\ntest_tmp:3"
         << std::endl;
 
     int file_type = 0;
     std::cin >> file_type;
-    if (file_type == 0)
+    if (file_type == 3)
+    {
+        stream_project::CStreamFilterGraph stream_filter_graph;
+        //stream_filter_graph.scale_video("/home/gene/mnt-231-ubunto/output/filter_graph.mp4", "../fileDepends/videos/person1.mp4");
+        stream_filter_graph.filter_video("../output/filter_graph.mp4", "../fileDepends/videos/vehicle1.mp4");
+    }
+    else if (file_type == 0)
     {
         stream_transfer.analyze_file("../fileDepends/videos/h264.h264", false);
         stream_transfer.analyze_file("../fileDepends/videos/person1.mp4", false);

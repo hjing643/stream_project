@@ -11,12 +11,7 @@ namespace stream_project
             int init();
 
         public:
-            int scale_video(const std::string& out, const std::string& video_path);
-            int crop_video(const std::string& out, const std::string& video_path);
-            int overload_video(const std::string& out, const std::string& video_path);
-            int drawbox_video(const std::string& out, const std::string& video_path);
-            int drawtext_video(const std::string& out, const std::string& video_path);
-            int boxblur_video(const std::string& out, const std::string& video_path);
+            int filter_video(const std::string& out, const std::string& video_path);
         private:
             bool is_init_ = false;
     };

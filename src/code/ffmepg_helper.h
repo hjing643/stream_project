@@ -16,7 +16,9 @@ namespace stream_project
         static int get_video_stream_index(const AVFormatContext * const fmt_ctx);
         static int get_audio_stream_index(const AVFormatContext * const fmt_ctx);
 
-        static AVCodecContext* create_video_encodec_context(const AVCodecParameters* const codec_parameter, AVRational time_base, AVRational framerate);
-        static AVCodecContext* create_video_decodec_context(const AVCodecParameters* const codec_parameter, AVRational time_base, AVRational framerate);
+        static AVCodecContext* create_video_encodec_context(const AVStream* const video_stream, bool open_codec = true);
+        static AVCodecContext* create_video_decodec_context(const AVStream* const video_stream, bool open_codec = true);
+
+        static std::string get_input_format_name(const AVFormatContext * const fmt_ctx);
     };  
 }
