@@ -83,6 +83,15 @@ namespace stream_project
         is_init_ = true;
         return 1;
     }
+    int estimate_bitrate(int width, int height, int fps = 30) 
+    {
+        int pixels = width * height;
+        if (pixels <= 640*360) return 800000;
+        if (pixels <= 1280*720) return 2500000;
+        if (pixels <= 1920*1080) return 4000000;
+        return 8000000; // 默认更高分辨率
+    }
+
     int CStreamFilterGraph::filter_video(const std::string& out, const std::string& video_path)
     {
         init();
@@ -124,12 +133,7 @@ namespace stream_project
         std::cout << "encoder_ctx->width: " << encoder_ctx->width << std::endl;
         std::cout << "encoder_ctx->height: " << encoder_ctx->height << std::endl;
         encoder_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER; // it's very important, otherwise the output file will be invalid
-        std::cout << "in_video_stream->codecpar->bit_rate: " 
-            << in_video_stream->codecpar->bit_rate << std::endl;
-        std::cout << "encoder_ctx->codecpar->bit_rate: " 
-            << encoder_ctx->bit_rate << std::endl;
-        //encoder_ctx->bit_rate = 4*1024*1024;
-        std::cout << "afterencoder_ctx->bit_rate: " << encoder_ctx->bit_rate << std::endl;
+        encoder_ctx->bit_rate = estimate_bitrate(encoder_ctx->width, encoder_ctx->height);
         auto_destroy_output.set_codec_context(encoder_ctx);
 
         // create video stream
@@ -151,15 +155,16 @@ namespace stream_project
         // after open it, set the parameters
         std::string input_format_name = CFFmpegHelper::get_input_format_name(fmt_ctx);
         AVFormatContext* output_fmt_ctx = NULL;
-        avformat_alloc_output_context2(&output_fmt_ctx, NULL, input_format_name.c_str(), output_filename);
+        avformat_alloc_output_context2(&output_fmt_ctx, NULL, "mp4", output_filename);
         auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
 
-        AVStream* out_stream = avformat_new_stream(output_fmt_ctx, encoder);
-        avcodec_parameters_from_context(out_stream->codecpar, encoder_ctx);
-        out_stream->time_base = encoder_ctx->time_base; //other witdh, height, pix_fmt set to encoder_ctx
-        out_stream->avg_frame_rate = encoder_ctx->framerate;
-        out_stream->r_frame_rate = encoder_ctx->framerate;
-        
+        AVStream* out_stream = CFFmpegHelper::create_new_video_stream(encoder_ctx, output_fmt_ctx, encoder_ctx->codec_id);
+        if (!out_stream)
+        {
+            std::cerr << term_color::red << "Failed to create new video stream" << term_color::reset << std::endl;
+            return -1;
+        }
+
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
         {
             ret = avio_open(&output_fmt_ctx->pb, output_filename, AVIO_FLAG_WRITE);
@@ -185,7 +190,7 @@ namespace stream_project
         //"scale=1280:720,"
         "drawbox=x=100:y=100:w=200:h=100:color=red@0.5:thickness=5,"
         "drawtext=fontfile='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf':"
-        "text='Frame\\:%{n}':fontsize=24:fontcolor=white:x=10:y=10"
+        "text='Gene.Huang.Frame\\:%{n}':fontsize=24:fontcolor=white:x=10:y=10"
         //"boxblur=2:1"
         "[out]";
 

@@ -78,28 +78,6 @@ namespace stream_project
         SwsContext* sws_ctx_ = NULL;
     };
 
-    std::string get_input_format_name(AVFormatContext* input_fmt_ctx)
-    {
-        if (!input_fmt_ctx)
-        {
-            return "";
-        }
-        std::string input_format_name = input_fmt_ctx->iformat->name;
-        size_t comma_pos = input_format_name.find(',');
-        if (comma_pos != std::string::npos) 
-        {
-            input_format_name = input_format_name.substr(0, comma_pos); 
-        }
-        return input_format_name;
-    }
-    bool is_keyframe(AVPacket* packet)
-    {
-        if (!packet)
-        {
-            return false;
-        }
-        return packet->flags & AV_PKT_FLAG_KEY;
-    }
     // stream_type: 0 video
     std::string transfer_video_pix_format(int pix_format, int stream_type)
     {
@@ -534,7 +512,7 @@ namespace stream_project
                     {
                         char finalbuf[256] = {0};
                         bool idr_mark = false;
-                        if (is_keyframe(pkt))
+                        if (CFFmpegHelper::is_keyframe(pkt))
                         {
                             idr_mark = true;
                         }
@@ -568,7 +546,7 @@ namespace stream_project
                                         << ", size=" << frame->width << "x" << frame->height
                                         << std::endl;
 
-                                if (!is_keyframe(pkt)
+                                if (!CFFmpegHelper::is_keyframe(pkt)
                                 && frame->pict_type == AV_PICTURE_TYPE_I)
                                 {
                                     std::cout << "  non IDR I Frame" << std::endl;
@@ -974,15 +952,17 @@ namespace stream_project
         }*/
         
         AVFormatContext* output_fmt_ctx = NULL;
-        std::string input_format_name = get_input_format_name(input_fmt_ctx);
+        std::string input_format_name = CFFmpegHelper::get_input_format_name(input_fmt_ctx);
         avformat_alloc_output_context2(&output_fmt_ctx, NULL, input_format_name.c_str(), out.c_str());
         auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
 
-        AVStream* out_stream = avformat_new_stream(output_fmt_ctx, encoder);
-        avcodec_parameters_from_context(out_stream->codecpar, encoder_ctx);
-        out_stream->time_base = encoder_ctx->time_base;
-        out_stream->r_frame_rate = encoder_ctx->framerate;
-        out_stream->avg_frame_rate = encoder_ctx->framerate;
+        AVStream* out_stream = CFFmpegHelper::create_new_video_stream(encoder_ctx, output_fmt_ctx, encoder_ctx->codec_id);
+        if (!out_stream)
+        {
+            std::cerr << term_color::red << "Failed to create new video stream" << term_color::reset << std::endl;
+            return -1;
+        }
+
 
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
         {
@@ -1112,7 +1092,8 @@ namespace stream_project
 
         // new file
         AVFormatContext* output_fmt_ctx = NULL;
-        std::string input_format_name = get_input_format_name(input_fmt_ctx);
+        std::string input_format_name = CFFmpegHelper::get_input_format_name(input_fmt_ctx);
+        std::cout << "input_format_name: " << input_format_name << std::endl;
         avformat_alloc_output_context2(&output_fmt_ctx, NULL, input_format_name.c_str(), out.c_str());
         auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
 
@@ -1144,7 +1125,7 @@ namespace stream_project
         int frame_idx = 0;
         while (av_read_frame(input_fmt_ctx, packet) >= 0) {
             if (packet->stream_index == video_stream_index) {
-                if (is_keyframe(packet))
+                if (CFFmpegHelper::is_keyframe(packet))
                 {
                     av_interleaved_write_frame(output_fmt_ctx, packet);
                 }
@@ -1471,56 +1452,17 @@ namespace stream_project
             printf_ffmepg_error(ret, "avformat_alloc_output_context2");
             return -1;
         }
-
         auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
 
         // 复制输入流到输出
-        int video_stream_index = -1;
-        for (unsigned int i = 0; i < input_fmt_ctx->nb_streams; i++) 
+        AVStream* out_stream = CFFmpegHelper::clone_new_video_stream(input_fmt_ctx, output_fmt_ctx);
+        if (!out_stream)
         {
-            AVStream* in_stream = input_fmt_ctx->streams[i];
-           
-            if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
-            {
-                AVStream* out_stream = avformat_new_stream(output_fmt_ctx, nullptr);
-                if (!out_stream) 
-                {
-                    std::cerr << term_color::red << "Failed allocating output stream" << term_color::reset << std::endl;
-                    return -1;
-                }
-                
-                // 复制流参数
-                ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
-                if (ret < 0) 
-                {
-                    std::cerr << term_color::red << "Failed to copy codec parameters" << term_color::reset << std::endl;
-                    return -1;
-                }
-                out_stream->codecpar->codec_tag = 0;
-                video_stream_index = i;
-
-                // if src_fmt pts, dst is not valid(raw data), set to 25fps
-                if(out_stream->time_base.num <= 0 || out_stream->time_base.den <= 0)
-                {
-                    std::cout << term_color::yellow << "src_fmt pts, dst is not valid(raw data), set to 25fps" << term_color::reset << std::endl;
-                    AVRational mp4_time_base = (AVRational){1, 90000};
-                    out_stream->r_frame_rate = (AVRational){25, 1};
-                    out_stream->avg_frame_rate = (AVRational){25, 1};
-                    out_stream->time_base = mp4_time_base;
-                }
-                if(dst_fmt == "mp4")
-                {
-                    out_stream->codecpar->codec_tag = av_codec_get_tag(output_fmt_ctx->oformat->codec_tag, out_stream->codecpar->codec_id);
-                    if (out_stream->codecpar->codec_tag == 0) 
-                    {
-                        std::cerr << term_color::red << "Could not find codec tag for codec id " << out_stream->codecpar->codec_id << term_color::reset << "\n";
-                        return -1;
-                    }
-                }
-            }
+            std::cerr << term_color::red << "Failed to clone new video stream" << term_color::reset << std::endl;
+            return -1;
         }
-
-        if (video_stream_index == -1) 
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
+        if (video_stream_index == -1)
         {
             std::cerr << term_color::red << "No video stream found" << term_color::reset << std::endl;
             return -1;
@@ -1551,7 +1493,6 @@ namespace stream_project
 
         AVPacket* input_packet = av_packet_alloc();
         auto_destroy_input.set_packet(input_packet);
-
 
         int frame_index = 0;
         while (av_read_frame(input_fmt_ctx, input_packet) >= 0) 
@@ -1593,6 +1534,146 @@ namespace stream_project
         av_write_trailer(output_fmt_ctx);
 
         std::cout << "format_A_to_B2 finished " << out << std::endl;
+        return 1;
+    }
+
+    int CStreamTransfer::cut_video(const std::string& out, const std::string& video_path, int start_time, int end_time)
+    {
+        init();
+        CAutoDestroyStreamTransfer auto_destroy_input;
+        CAutoDestroyStreamTransfer auto_destroy_output;
+
+        AVFormatContext* input_fmt_ctx = NULL;
+        int ret = 0;
+        ret = avformat_open_input(&input_fmt_ctx, video_path.c_str(), NULL, NULL);
+        if (ret < 0 || !input_fmt_ctx)
+        {
+            printf_ffmepg_error(ret, "avformat_open_input");
+            std::cout << term_color::red << "avformat_open_input failed" << term_color::reset << video_path << std::endl;
+            return -1;
+
+        }
+        ret = avformat_find_stream_info(input_fmt_ctx, NULL);
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_find_stream_info");
+            std::cout << term_color::red << "avformat_find_stream_info failed" << term_color::reset << video_path << std::endl;
+            return -1;
+        }
+
+        // --- 创建输出上下文 ---
+        AVFormatContext* output_fmt_ctx = NULL;
+        ret = avformat_alloc_output_context2(&output_fmt_ctx, NULL, NULL, out.c_str());
+
+        if (!output_fmt_ctx || ret < 0) 
+        {
+            printf_ffmepg_error(ret, "avformat_alloc_output_context2");
+            return -1;
+        }
+
+        auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
+
+        // 复制输入流到输出
+        AVStream* out_stream = CFFmpegHelper::clone_new_video_stream(input_fmt_ctx, output_fmt_ctx);
+        if (!out_stream)
+        {
+            std::cerr << term_color::red << "Failed to clone new video stream" << term_color::reset << std::endl;
+            return -1;
+        }
+        
+        // 设置输出文件
+        if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
+        {
+            ret = avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0 || !output_fmt_ctx->pb)
+            {
+                printf_ffmepg_error(ret, "avio_open");
+                std::cout << term_color::red << "avio_open failed" << term_color::reset  << out << std::endl;
+                return -1;
+            }
+        }
+        
+        // output_fmt_ctx modify the time base even i set to 1/90000
+        // 1/1000 is not a good choice
+        ret = avformat_write_header(output_fmt_ctx, NULL); 
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_write_header");
+            return -1;
+        }
+
+        std::cout << term_color::yellow << "output_fmt_ctx->time_base:" << output_fmt_ctx->streams[0]->time_base.num << "/" << output_fmt_ctx->streams[0]->time_base.den << term_color::reset << std::endl;
+
+        AVPacket* input_packet = av_packet_alloc();
+        auto_destroy_input.set_packet(input_packet);
+
+        int frame_index = 0;
+        int new_frame_index = 0;
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
+        int start_time_in_time_base = start_time * output_fmt_ctx->streams[video_stream_index]->time_base.den;
+        int end_time_in_time_base = end_time * output_fmt_ctx->streams[video_stream_index]->time_base.den;
+        std::cout << "start_time_in_time_base:" << start_time_in_time_base << std::endl;
+        std::cout << "end_time_in_time_base:" << end_time_in_time_base << std::endl;
+
+        std::cout << "input time base:" << input_fmt_ctx->streams[video_stream_index]->time_base.num << "/" << input_fmt_ctx->streams[video_stream_index]->time_base.den << std::endl;
+
+        bool is_start = false;
+        while (av_read_frame(input_fmt_ctx, input_packet) >= 0) 
+        {
+            if (input_packet->stream_index == video_stream_index) 
+            {                    
+                int frame_duration = output_fmt_ctx->streams[video_stream_index]->time_base.den / 25;   // 每帧 = 3600 时间单位
+                input_packet->pts = (frame_index * frame_duration);
+                input_packet->dts = input_packet->pts;
+                input_packet->duration = frame_duration;
+                input_packet->pos = -1;
+
+                if (input_packet->pts >= start_time_in_time_base && input_packet->pts <= end_time_in_time_base)
+                {
+                    std::cout << "pts_time in time base:" << input_packet->pts << std::endl;
+                    if (!is_start)
+                    {
+                        if(CFFmpegHelper::is_keyframe(input_packet))
+                        {
+                            is_start = true;
+                            input_packet->pts = new_frame_index * frame_duration;
+                            input_packet->dts = input_packet->pts;
+                            input_packet->duration = frame_duration;
+                            input_packet->pos = -1;
+                            av_interleaved_write_frame(output_fmt_ctx, input_packet); 
+                            new_frame_index++;
+                        }
+                    }
+                    else
+                    {
+                        input_packet->pts = new_frame_index * frame_duration;
+                        input_packet->dts = input_packet->pts;
+                        input_packet->duration = frame_duration;
+                        input_packet->pos = -1;
+                        av_interleaved_write_frame(output_fmt_ctx, input_packet); 
+                        new_frame_index++;
+                    }
+                }
+                else
+                {          
+                    av_packet_unref(input_packet);
+                }
+                ++frame_index;
+            }
+            av_packet_unref(input_packet);
+        }
+
+        av_write_trailer(output_fmt_ctx);
+
+        std::cout << "cut_video finished " << out << std::endl;
+        return 1;
+    }
+
+    int CStreamTransfer::remove_audio(const std::string& out, const std::string& video_path)
+    {
+        init();
+        CAutoDestroyStreamTransfer auto_destroy_input;
+        CAutoDestroyStreamTransfer auto_destroy_output;
         return 1;
     }
 }

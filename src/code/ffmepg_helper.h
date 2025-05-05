@@ -16,6 +16,11 @@ namespace stream_project
         static int get_video_stream_index(const AVFormatContext * const fmt_ctx);
         static int get_audio_stream_index(const AVFormatContext * const fmt_ctx);
 
+        static bool is_keyframe(AVPacket* packet);
+        // clone input to output
+        static AVStream* clone_new_video_stream(AVFormatContext* input_fmt_ctx, AVFormatContext* output_fmt_ctx);
+        static AVStream* create_new_video_stream(AVCodecContext* encoder_ctx, AVFormatContext* output_fmt_ctx, AVCodecID codec_id);
+
         static AVCodecContext* create_video_encodec_context(const AVStream* const video_stream, bool open_codec = true);
         static AVCodecContext* create_video_decodec_context(const AVStream* const video_stream, bool open_codec = true);
 

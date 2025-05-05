@@ -51,6 +51,10 @@ namespace stream_project
             // mp4 to h264
             int format_mp4_to_raw(const std::string& out, const std::string& video_path);
             int format_yuv_to_rgb(const std::string& out, const std::string& video_path, int width, int height);
+
+            // cut video
+            int cut_video(const std::string& out, const std::string& video_path, int start_time, int end_time);
+            int remove_audio(const std::string& out, const std::string& video_path);
         private:
             bool is_init_ = false;
 

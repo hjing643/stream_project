@@ -21,6 +21,7 @@ int main(int argc, char* argv[])
     stream_project::CRawStreamRead read_stream;
     stream_project::CHeicStreamRead heic_stream_read;
     stream_project::CPictureTransfer picture_transfer;
+    stream_project::CStreamFilterGraph stream_filter_graph;
 
     std::string fullPath = argv[1];
 
@@ -35,9 +36,8 @@ int main(int argc, char* argv[])
     std::cin >> file_type;
     if (file_type == 3)
     {
-        stream_project::CStreamFilterGraph stream_filter_graph;
         //stream_filter_graph.scale_video("/home/gene/mnt-231-ubunto/output/filter_graph.mp4", "../fileDepends/videos/person1.mp4");
-        stream_filter_graph.filter_video("../output/filter_graph.mp4", "../fileDepends/videos/vehicle1.mp4");
+        stream_filter_graph.filter_video("../output/filter_graph.mp4", "../fileDepends/videos/youtube.mp4");
     }
     else if (file_type == 0)
     {
@@ -57,6 +57,9 @@ int main(int argc, char* argv[])
         heic_stream_read.transfer_heic_to_picture("/home/gene/mnt-231-ubunto/output/1.jpg", "../fileDepends/videos/1.HEIC", AV_CODEC_ID_MJPEG);
         heic_stream_read.transfer_heic_to_picture("/home/gene/mnt-231-ubunto/output/1.png", "../fileDepends/videos/1.HEIC", AV_CODEC_ID_PNG);
 
+        stream_filter_graph.filter_video("/home/gene/mnt-231-ubunto/output/filter_graph.mp4", "../fileDepends/videos/vehicle1.mp4");
+        stream_transfer.cut_video("/home/gene/mnt-231-ubunto/output/cut_video.mp4", "../fileDepends/videos/vehicle1.mp4", 10, 20);
+        stream_transfer.remove_audio("/home/gene/mnt-231-ubunto/output/remove_audio.mp4", "../fileDepends/videos/vehicle1.mp4");
 
         stream_transfer.get_first_frame("/home/gene/mnt-231-ubunto/output/I.png", "../fileDepends/videos/person1.mp4", 1, 3);
         stream_transfer.get_first_frame("/home/gene/mnt-231-ubunto/output/P.png", "../fileDepends/videos/person1.mp4", 2, 3);
@@ -75,8 +78,11 @@ int main(int argc, char* argv[])
             << "\n7-change_fps"
             << "\n8-heic_to_jpg"
             << "\n9-heic_to_png"
-            << "\n10-get_first_I_frame_to_yuv"
-            << "\n11-get_first_I_frame_to_png"
+            << "\n10-filter_video"
+            << "\n11-cut_video"
+            << "\n12-remove_audio"
+            << "\n100-get_first_I_frame_to_yuv"
+            << "\n101-get_first_I_frame_to_png"
             << std::endl;
 
         int function_type = 0;
@@ -172,12 +178,39 @@ int main(int argc, char* argv[])
             {
                 if (file_output.empty())
                 {
+                    file_output = "../output/filter_video.mp4";
+                }
+                stream_filter_graph.filter_video(file_output, fullPath);
+            }
+                break;
+            case 11:
+            {
+                if (file_output.empty())
+                {
+                    file_output = "../output/cut_video.mp4";
+                }
+                stream_transfer.cut_video(file_output, fullPath, 10, 20);
+            }
+                break;
+            case 12:
+            {
+                if (file_output.empty())
+                {
+                    file_output = "../output/remove_audio.mp4"; 
+                }
+                stream_transfer.remove_audio(file_output, fullPath);
+            }
+                break;
+            case 100:
+            {
+                if (file_output.empty())
+                {
                     file_output = "../output/i.yuv";      
                 }
                 stream_transfer.get_first_frame(file_output, fullPath, 1, 1);
             }
                 break;
-            case 11:
+            case 101:
             {
                 if (file_output.empty())
                 {

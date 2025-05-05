@@ -56,6 +56,14 @@ namespace stream_project
         return -1;
     }
 
+    bool CFFmpegHelper::is_keyframe(AVPacket* packet)
+    {
+        if (!packet)
+        {
+            return false;
+        }
+        return packet->flags & AV_PKT_FLAG_KEY;
+    }
     std::string CFFmpegHelper::get_input_format_name(const AVFormatContext * const input_fmt_ctx)
     {
         if (!input_fmt_ctx)
@@ -64,6 +72,12 @@ namespace stream_project
             return "";
         }
         std::string input_format_name = input_fmt_ctx->iformat->name;
+
+        if (input_format_name.find("mp4") != std::string::npos) 
+        {
+            return "mp4";
+        }
+
         size_t comma_pos = input_format_name.find(',');
         if (comma_pos != std::string::npos) 
         {
@@ -71,7 +85,93 @@ namespace stream_project
         }
         return input_format_name;
     }
+    AVStream* CFFmpegHelper::create_new_video_stream(AVCodecContext* encoder_ctx, AVFormatContext* output_fmt_ctx, AVCodecID codec_id)
+    {
+        const AVCodec* encoder = avcodec_find_encoder(codec_id);
+        if (!encoder) 
+        {
+            std::cerr << "Unsupported encoder" << std::endl;
+            return nullptr;
+        }
 
+        AVStream* out_stream = avformat_new_stream(output_fmt_ctx, encoder);
+        if (!out_stream) 
+        {
+            std::cerr << term_color::red << "Failed allocating output stream" << term_color::reset << std::endl;
+            return nullptr;
+        }
+        avcodec_parameters_from_context(out_stream->codecpar, encoder_ctx);
+        out_stream->time_base = encoder_ctx->time_base;
+        out_stream->r_frame_rate = encoder_ctx->framerate;
+        out_stream->avg_frame_rate = encoder_ctx->framerate;
+        return out_stream;
+    }
+
+    AVStream* CFFmpegHelper::clone_new_video_stream(AVFormatContext* input_fmt_ctx, AVFormatContext* output_fmt_ctx)
+    {
+        if (!input_fmt_ctx)
+        {
+            std::cerr << term_color::red << "input_fmt_ctx is nullptr" << term_color::reset << std::endl;
+            return nullptr;
+        }
+        for (unsigned int i = 0; i < input_fmt_ctx->nb_streams; i++) 
+        {
+            AVStream* in_stream = input_fmt_ctx->streams[i];
+           
+            if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) 
+            {
+                AVStream* out_stream = avformat_new_stream(output_fmt_ctx, nullptr);
+                if (!out_stream) 
+                {
+                    std::cerr << term_color::red << "Failed allocating output stream" << term_color::reset << std::endl;
+                    return nullptr;
+                }
+                
+                // 复制流参数
+                int ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
+                if (ret < 0) 
+                {
+                    std::cerr << term_color::red << "Failed to copy codec parameters" << term_color::reset << std::endl;
+                    return nullptr;
+                }
+                out_stream->codecpar->codec_tag = 0;
+
+                // if src_fmt pts, dst is not valid(raw data), set to 25fps
+                if(in_stream->time_base.num <= 0 || in_stream->time_base.den <= 0)
+                {
+                    std::cout << term_color::yellow << "src_fmt pts, dst is not valid(raw data), set to 25fps" << term_color::reset << std::endl;
+                    AVRational mp4_time_base = (AVRational){1, 90000};
+                    out_stream->time_base = mp4_time_base;
+                }
+                else
+                {
+                    out_stream->time_base = in_stream->time_base;
+                }
+
+                if(in_stream->r_frame_rate.num <= 0 || in_stream->r_frame_rate.den <= 0)
+                {
+                    std::cout << term_color::yellow << "src_fmt frame_rate, dst is not valid(raw data), set to 25fps" << term_color::reset << std::endl;
+                    out_stream->r_frame_rate = (AVRational){25, 1};
+                    out_stream->avg_frame_rate = (AVRational){25, 1};
+                }
+                else
+                {
+                    out_stream->r_frame_rate = in_stream->r_frame_rate;
+                    out_stream->avg_frame_rate = in_stream->avg_frame_rate;
+                }
+                {
+                    out_stream->codecpar->codec_tag = av_codec_get_tag(output_fmt_ctx->oformat->codec_tag, out_stream->codecpar->codec_id);
+                    if (out_stream->codecpar->codec_tag == 0) 
+                    {
+                        std::cerr << term_color::red << "Could not find codec tag for codec id " << out_stream->codecpar->codec_id << term_color::reset << "\n";
+                        return nullptr;
+                    }
+                }
+                return out_stream;
+            }
+        }
+        return nullptr;
+    }
 
     AVCodecContext* CFFmpegHelper::create_video_encodec_context(const AVStream* const video_stream, bool open_codec)
     {
@@ -94,7 +194,7 @@ namespace stream_project
             return nullptr;
         }
         avcodec_parameters_to_context(codec_ctx, video_stream->codecpar);
-        
+
         if (video_stream->time_base.num > 0 && video_stream->time_base.den > 0)
         {
             codec_ctx->time_base = video_stream->time_base;
