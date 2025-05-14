@@ -5,8 +5,14 @@
 #include "heicstream_read.h"
 #include "picture_transfer.h"
 #include "stream_filtergraph.h"
+#include "stream_display.h"
+#include "test.h"
 int main(int argc, char* argv[])
 {
+
+    test::CTest test;
+    test.test();
+
     if (argc < 2)
     {
         std::cout << "please input file name" <<std::endl;
@@ -22,6 +28,7 @@ int main(int argc, char* argv[])
     stream_project::CHeicStreamRead heic_stream_read;
     stream_project::CPictureTransfer picture_transfer;
     stream_project::CStreamFilterGraph stream_filter_graph;
+    stream_project::CStreamDisplay stream_display;
 
     std::string fullPath = argv[1];
 
@@ -29,15 +36,17 @@ int main(int argc, char* argv[])
         << "\ntest_all:0"
         << "\nstream_transcode:1"
         << "\nrawstream_read:2"
-        << "\ntest_tmp:3"
+        << "\nopencv:3"
+        << "\ntest_tmp:4"
         << std::endl;
 
     int file_type = 0;
     std::cin >> file_type;
-    if (file_type == 3)
+    if (file_type == 4)
     {
         //stream_filter_graph.scale_video("/home/gene/mnt-231-ubunto/output/filter_graph.mp4", "../fileDepends/videos/person1.mp4");
-        stream_filter_graph.filter_video("../output/filter_graph.mp4", "../fileDepends/videos/youtube.mp4");
+        picture_transfer.transfer_raw_to_picture("../output/i.yuv", 
+        AV_PIX_FMT_YUV420P, 3840, 2160, "../output/i.png", AV_CODEC_ID_PNG);
     }
     else if (file_type == 0)
     {
@@ -65,7 +74,7 @@ int main(int argc, char* argv[])
         stream_transfer.get_first_frame("/home/gene/mnt-231-ubunto/output/P.png", "../fileDepends/videos/person1.mp4", 2, 3);
         return 0;
     }
-    if (file_type == 1)
+    else if (file_type == 1)
     {
         std::cout << "function type:"
             << "\n0-analyze_file"
@@ -216,7 +225,7 @@ int main(int argc, char* argv[])
                 {
                     file_output = "../output/i.png";      
                 }
-                stream_transfer.get_first_frame(file_output, fullPath, 2, 1);
+                stream_transfer.get_first_frame(file_output, fullPath, 1, 3);
             }
                 break;
             default:
@@ -244,6 +253,9 @@ int main(int argc, char* argv[])
                 break;
         }
     }
-    
+    else if (file_type == 3)
+    {
+        stream_display.compress_png("../output/i.png", "../fileDepends/images/i.png");
+    }
     return 0;
 }

@@ -169,6 +169,7 @@ namespace stream_project
                 std::cout << "sample_aspect_ratio:" << file_format.video_stream->sample_aspect_ratio.num
                     << "/" << file_format.video_stream->sample_aspect_ratio.den << std::endl; 
                 std::cout << "bit_rate:" << file_format.video_stream->codecpar->bit_rate << std::endl;
+                //std::cout<< "frame number:" << file_format.video_stream->duration / file_format.video_stream->time_base.den << std::endl;
             }
             else
             {
@@ -209,7 +210,11 @@ namespace stream_project
     }
     int write_frame_to_yuv(const char* file_path, AVFrame* ptr_frame)
     {
-        std::cout<<"width:"<< ptr_frame->width << ",height"<<ptr_frame->height<< std::endl;
+        std::cout << "write_frame_to_yuv " << file_path 
+        << " width:"<< ptr_frame->width 
+        << ",height:"<<ptr_frame->height
+        << ",format:"<<ptr_frame->format
+        << std::endl;
 
         FILE* f = fopen(file_path, "wb");
         if (!f)
@@ -285,6 +290,7 @@ namespace stream_project
         }
     int write_frame_to_png(const char* file_path, AVFrame* src_frame)
     {
+        std::cout << "write_frame_to_png " << file_path << std::endl;
         CPictureTransfer picture_transfer;
         if (src_frame->format == AV_PIX_FMT_YUV420P)
         {              
@@ -773,6 +779,7 @@ namespace stream_project
 
     int CStreamTransfer::get_first_frame(const std::string& out, const std::string& video_path, int frame_type, int dst_codec)
     {
+        std::cout << "get_first_frame " << video_path << std::endl;
         init();
         CAutoDestroyStreamTransfer auto_destroy_input;
         CAutoDestroyStreamTransfer auto_destroy_output;
@@ -827,7 +834,7 @@ namespace stream_project
                         
         std::cout << term_color::yellow << "start decoder" << term_color::reset << std::endl;
         bool find = false;
-        int find_frame_index = 1; // find the 5 frame
+        int find_frame_index = 3; // find the 5 frame
         int current_frame_index = 0;
         while (av_read_frame(fmt_ctx, pkt) >= 0) 
         {
@@ -836,12 +843,11 @@ namespace stream_project
                 avcodec_send_packet(codec_ctx, pkt);
                 while (avcodec_receive_frame(codec_ctx, frame) == 0) 
                 {
-                    std::cout << term_color::yellow << "pict_type:" << frame->pict_type << term_color::reset << std::endl;
-
-                    if (frame->pict_type == frame_type)
-                    {
+                    //std::cout << term_color::yellow << "pict_type:" << frame->pict_type << term_color::reset << std::endl;
+                    if (frame->pict_type == AV_PICTURE_TYPE_I)
+                    {                    
                         ++current_frame_index;
-                        if (current_frame_index == find_frame_index)
+                        if (current_frame_index >= find_frame_index)
                         {
                             find = true;
                             if(dst_codec == 0)
@@ -862,8 +868,9 @@ namespace stream_project
                             }
 
                         }
-                        std::cout << term_color::yellow << "find the frame, current_frame_index:" << current_frame_index << term_color::reset << std::endl;
-                        break;
+                        //std::cout << term_color::yellow << "find the frame, current_frame_index:" << current_frame_index << term_color::reset << std::endl;
+                        //std::cout << "Y[0]: " << (int)frame->data[0][0] << std::endl;
+                        //break;
                     }
                 }
             }
@@ -1630,7 +1637,7 @@ namespace stream_project
 
                 if (input_packet->pts >= start_time_in_time_base && input_packet->pts <= end_time_in_time_base)
                 {
-                    std::cout << "pts_time in time base:" << input_packet->pts << std::endl;
+                    //std::cout << "pts_time in time base:" << input_packet->pts << std::endl;
                     if (!is_start)
                     {
                         if(CFFmpegHelper::is_keyframe(input_packet))
@@ -1654,10 +1661,6 @@ namespace stream_project
                         new_frame_index++;
                     }
                 }
-                else
-                {          
-                    av_packet_unref(input_packet);
-                }
                 ++frame_index;
             }
             av_packet_unref(input_packet);
@@ -1674,6 +1677,94 @@ namespace stream_project
         init();
         CAutoDestroyStreamTransfer auto_destroy_input;
         CAutoDestroyStreamTransfer auto_destroy_output;
+
+        AVFormatContext* input_fmt_ctx = NULL;
+        int ret = 0;
+        ret = avformat_open_input(&input_fmt_ctx, video_path.c_str(), NULL, NULL);
+        if (ret < 0 || !input_fmt_ctx)
+        {
+            printf_ffmepg_error(ret, "avformat_open_input");
+            std::cout << term_color::red << "avformat_open_input failed" << term_color::reset << video_path << std::endl;
+            return -1;
+
+        }
+        ret = avformat_find_stream_info(input_fmt_ctx, NULL);
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_find_stream_info");
+            std::cout << term_color::red << "avformat_find_stream_info failed" << term_color::reset << video_path << std::endl;
+            return -1;
+        }
+
+        // --- 创建输出上下文 ---
+        AVFormatContext* output_fmt_ctx = NULL;
+        ret = avformat_alloc_output_context2(&output_fmt_ctx, NULL, NULL, out.c_str());
+
+        if (!output_fmt_ctx || ret < 0) 
+        {
+            printf_ffmepg_error(ret, "avformat_alloc_output_context2");
+            return -1;
+        }
+
+        auto_destroy_output.set_fmt_ctx(output_fmt_ctx, 1);
+
+        // 复制输入流到输出
+        AVStream* out_stream = CFFmpegHelper::clone_new_video_stream(input_fmt_ctx, output_fmt_ctx);
+        if (!out_stream)
+        {
+            std::cerr << term_color::red << "Failed to clone new video stream" << term_color::reset << std::endl;
+            return -1;
+        }
+        
+        // 设置输出文件
+        if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
+        {
+            ret = avio_open(&output_fmt_ctx->pb, out.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0 || !output_fmt_ctx->pb)
+            {
+                printf_ffmepg_error(ret, "avio_open");
+                std::cout << term_color::red << "avio_open failed" << term_color::reset  << out << std::endl;
+                return -1;
+            }
+        }
+        
+        // output_fmt_ctx modify the time base even i set to 1/90000
+        // 1/1000 is not a good choice
+        ret = avformat_write_header(output_fmt_ctx, NULL); 
+        if (ret < 0)
+        {
+            printf_ffmepg_error(ret, "avformat_write_header");
+            return -1;
+        }
+
+        std::cout << term_color::yellow << "output_fmt_ctx->time_base:" << output_fmt_ctx->streams[0]->time_base.num << "/" << output_fmt_ctx->streams[0]->time_base.den << term_color::reset << std::endl;
+
+        AVPacket* input_packet = av_packet_alloc();
+        auto_destroy_input.set_packet(input_packet);
+
+        int frame_index = 0;
+        int new_frame_index = 0;
+        int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
+
+        while (av_read_frame(input_fmt_ctx, input_packet) >= 0) 
+        {
+            if (input_packet->stream_index == video_stream_index) 
+            {                    
+                int frame_duration = output_fmt_ctx->streams[video_stream_index]->time_base.den / 25;   // 每帧 = 3600 时间单位
+                input_packet->pts = (frame_index * frame_duration);
+                input_packet->dts = input_packet->pts;
+                input_packet->duration = frame_duration;
+                input_packet->pos = -1;
+
+                av_interleaved_write_frame(output_fmt_ctx, input_packet); 
+                av_packet_unref(input_packet);
+                ++frame_index;
+            }
+            av_packet_unref(input_packet);
+        }
+        av_write_trailer(output_fmt_ctx);
+
+        std::cout << "remove_audio finished " << out << std::endl;
         return 1;
     }
 }

@@ -53,8 +53,8 @@ namespace stream_project
                 << "\noutput_path:" << output_path
                 << "\nwidth:" << width
                 << "\nheight:" << height
-                << "src_fmt:\n" << src_fmt
-                << "dst_codec_id:\n" << dst_codec_id
+                << "\nsrc_fmt:" << src_fmt
+                << "\ndst_codec_id:" << dst_codec_id
                 << std::endl;
 
         if (dst_codec_id != AV_CODEC_ID_MJPEG
@@ -74,8 +74,8 @@ namespace stream_project
         }
 
         int buffer_size = width * height * 3;
-        char* buffer = new char[buffer_size];
-        in.read(buffer, buffer_size);
+        std::unique_ptr<char[]> buffer(new char[buffer_size]);
+        in.read(buffer.get(), buffer_size);
         
         const AVCodec* codec = avcodec_find_encoder(dst_codec_id);
         if (!codec) 
@@ -106,7 +106,7 @@ namespace stream_project
         {
             codec_ctx->pix_fmt = AV_PIX_FMT_BGR24;
         } 
-        else 
+        else if (dst_codec_id == AV_CODEC_ID_PNG)
         {
             codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
         }
@@ -117,9 +117,15 @@ namespace stream_project
         dst_frame->width = width;
         dst_frame->height = height;
 
+        if (avcodec_open2(codec_ctx, codec, NULL) < 0) 
+        {
+            std::cout << term_color::red << "open codec failed" << term_color::reset << std::endl;
+            return -1;
+        }
+
         if(codec_ctx->pix_fmt != src_fmt)
         {
-            std::cout << "codec_ctx->pix_fmt: " << codec_ctx->pix_fmt << ", src_fmt: " << src_fmt << std::endl;
+            std::cout << "dst pix_fmt: " << codec_ctx->pix_fmt << ", src_fmt: " << src_fmt << std::endl;
             AVFrame* src_frame = av_frame_alloc();
             auto_destroy_input.set_frame(src_frame);
 
@@ -127,11 +133,16 @@ namespace stream_project
             src_frame->width = width;
             src_frame->height = height;
             av_image_fill_arrays(src_frame->data, src_frame->linesize,
-                                reinterpret_cast<const uint8_t*>(buffer), 
+                                reinterpret_cast<const uint8_t*>(buffer.get()), 
                                 src_fmt, width, height, 1);
 
             // 3. 转换为目标格式
-            av_frame_get_buffer(dst_frame, 32);
+            if(av_frame_get_buffer(dst_frame, 32) < 0)
+            {
+                std::cout << term_color::red << "av_frame_get_buffer failed" << term_color::reset << std::endl;
+                return -1;
+            }
+
             SwsContext* sws_ctx = sws_getContext(width, height, src_fmt,
                                                 width, height, codec_ctx->pix_fmt,
                                                 SWS_BILINEAR, nullptr, nullptr, nullptr);
@@ -147,16 +158,9 @@ namespace stream_project
         {
             // 将外部数据拷贝到 AVFrame（或你可以跳过复制，直接填入 frame->data）            
             av_image_fill_arrays(dst_frame->data, dst_frame->linesize,
-                     reinterpret_cast<const uint8_t*>(buffer),  // 原始图像数据指针
+                     reinterpret_cast<const uint8_t*>(buffer.get()),  // 原始图像数据指针
                      src_fmt, width, height, 1);
-        }
-
-
-        if (avcodec_open2(codec_ctx, codec, NULL) < 0) 
-        {
-            delete[] buffer;
-            std::cout << term_color::red << "open codec failed" << term_color::reset << std::endl;
-            return -1;
+            
         }
 
         // 4. 编码帧
@@ -164,19 +168,17 @@ namespace stream_project
         auto_destroy_output.set_packet(pkt);
         if (!pkt) 
         {
-            delete[] buffer;
             std::cout << term_color::red << "alloc packet failed" << term_color::reset << std::endl;
             return -1;
         }
 
         if (avcodec_send_frame(codec_ctx, dst_frame) < 0) 
         {
-            delete[] buffer;
             std::cout << term_color::red << "send frame failed" << term_color::reset << std::endl;
             return -1;
         }
 
-        if (avcodec_receive_packet(codec_ctx, pkt) == 0) 
+        while(avcodec_receive_packet(codec_ctx, pkt) == 0) 
         {
             std::cout << term_color::yellow << "pkt->size: " << pkt->size << term_color::reset << std::endl;
             // 5. 写入 PNG 文件
@@ -184,7 +186,6 @@ namespace stream_project
             av_packet_unref(pkt);
         }
         
-        delete[] buffer;
         std::cout << term_color::yellow << "transfer_raw_to_picture finished" << term_color::reset << std::endl;
         return 1;
     }

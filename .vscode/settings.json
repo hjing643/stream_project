@@ -62,6 +62,13 @@
         "semaphore": "cpp",
         "sstream": "cpp",
         "stop_token": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "charconv": "cpp",
+        "chrono": "cpp",
+        "complex": "cpp",
+        "format": "cpp",
+        "span": "cpp",
+        "typeindex": "cpp",
+        "variant": "cpp"
     }
 }

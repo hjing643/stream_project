@@ -1,17 +1,20 @@
 // based on opencv
 #pragma once
-
-class CStreamDisplay
+#include "../includeall.h"
+namespace stream_project
 {
-    public:
-        int init();
-        int display();
-        int display_video();
-        int display_audio();
-        int display_text();
-        int display_pic();
-        int display_hls();
-        int display_yuv();
-    private:
-        bool is_init_ = false;
-};
+    class CStreamDisplay
+    {
+        public:
+            int init();
+            int compress_png(const std::string &dst_path, const std::string &src_path);
+            int display_video();
+            int display_audio();
+            int display_text();
+            int display_pic();
+            int display_hls();
+            int display_yuv();
+        private:
+            bool is_init_ = false;
+    };
+}

@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 2.8)
 project(stream_project)
 
 # set c++ standard
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)   
 #set(CMAKE_CXX_EXTENSIONS OFF)  
 
@@ -41,20 +41,23 @@ target_include_directories(stream_program BEFORE PRIVATE
 #set(CMAKE_IGNORE_PATH /usr/lib /usr/local/lib)
 
 target_link_libraries(stream_program PRIVATE
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavfilter.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libpostproc.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavformat.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavcodec.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswresample.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libswscale.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libavutil.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libfreetype.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx264.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libx265.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libvpx.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libfdk-aac.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libheif.a
-  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build/lib/libde265.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libavfilter.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libpostproc.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libavformat.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libavcodec.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libswresample.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libswscale.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libavutil.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libfreetype.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libx264.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libx265.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libvpx.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libfdk-aac.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libheif.a
+  ${MY_HOME_DIR}/third-party/ffmpeg6.0/linux_build_static/lib/libde265.a
+  ${MY_HOME_DIR}/third-party/opencv/opencv_install/lib/libopencv_imgcodecs.so
+  ${MY_HOME_DIR}/third-party/opencv/opencv_install/lib/libopencv_imgproc.so
+  ${MY_HOME_DIR}/third-party/opencv/opencv_install/lib/libopencv_core.so
   pthread
   m
   z

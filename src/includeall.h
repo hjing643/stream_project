@@ -9,6 +9,7 @@
 #include <libheif/heif.h>
 #include <libheif/heif_cxx.h>
 
+#include <opencv2/opencv.hpp>
 //ffmpeg
 extern "C" {
 #include <libavformat/avformat.h>

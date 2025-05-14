@@ -9,10 +9,11 @@ namespace stream_project
     {
         public:
             int init();
-
+            ~CStreamFilterGraph();
         public:
             int filter_video(const std::string& out, const std::string& video_path);
         private:
             bool is_init_ = false;
+            AVDictionary *opts_ = nullptr;
     };
 }

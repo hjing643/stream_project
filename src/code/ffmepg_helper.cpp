@@ -64,6 +64,38 @@ namespace stream_project
         }
         return packet->flags & AV_PKT_FLAG_KEY;
     }
+
+    int CFFmpegHelper::estimate_bitrate(int width, int height, int fps)
+    {
+        int pixels = width * height;
+        if (pixels <= 850*480) 
+        {
+            // 480P
+            return 1*1024*1024;
+        }
+        else if (pixels <= 1280*720) 
+        {
+            // 720P
+            return 2.5*1024*1024;
+        }
+        else if (pixels <= 1920*1080) 
+        {
+            // 1080P
+            return 4*1024*1024;
+        }
+        else if (pixels <= 2560*1440)
+        {
+            // 2K
+            return 8*1024*1024;
+        }
+        else if (pixels <= 3840*2160)
+        {
+            // 4K
+            return 16*1024*1024;
+        }
+        // 默认更高分辨率
+        return 8*1024*1024; 
+    }
     std::string CFFmpegHelper::get_input_format_name(const AVFormatContext * const input_fmt_ctx)
     {
         if (!input_fmt_ctx)

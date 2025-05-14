@@ -17,6 +17,7 @@ namespace stream_project
         static int get_audio_stream_index(const AVFormatContext * const fmt_ctx);
 
         static bool is_keyframe(AVPacket* packet);
+        static int estimate_bitrate(int width, int height, int fps = 25);
         // clone input to output
         static AVStream* clone_new_video_stream(AVFormatContext* input_fmt_ctx, AVFormatContext* output_fmt_ctx);
         static AVStream* create_new_video_stream(AVCodecContext* encoder_ctx, AVFormatContext* output_fmt_ctx, AVCodecID codec_id);

@@ -80,16 +80,14 @@ namespace stream_project
         {
             return 1;
         }
+        opts_ = nullptr;
+        av_dict_set(&opts_, "threads", "8", 0);
         is_init_ = true;
         return 1;
     }
-    int estimate_bitrate(int width, int height, int fps = 30) 
+    CStreamFilterGraph::~CStreamFilterGraph()
     {
-        int pixels = width * height;
-        if (pixels <= 640*360) return 800000;
-        if (pixels <= 1280*720) return 2500000;
-        if (pixels <= 1920*1080) return 4000000;
-        return 8000000; // 默认更高分辨率
+        av_dict_free(&opts_);
     }
 
     int CStreamFilterGraph::filter_video(const std::string& out, const std::string& video_path)
@@ -102,7 +100,7 @@ namespace stream_project
         int ret = 0;
 
         AVFormatContext *fmt_ctx = nullptr;
-        if (avformat_open_input(&fmt_ctx, input_filename, nullptr, nullptr) < 0) 
+        if (avformat_open_input(&fmt_ctx, input_filename, nullptr, &opts_) < 0) 
         {
             std::cerr << "Failed to open input file" << std::endl;
             return -1;
@@ -133,7 +131,7 @@ namespace stream_project
         std::cout << "encoder_ctx->width: " << encoder_ctx->width << std::endl;
         std::cout << "encoder_ctx->height: " << encoder_ctx->height << std::endl;
         encoder_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER; // it's very important, otherwise the output file will be invalid
-        encoder_ctx->bit_rate = estimate_bitrate(encoder_ctx->width, encoder_ctx->height);
+        encoder_ctx->bit_rate = CFFmpegHelper::estimate_bitrate(encoder_ctx->width, encoder_ctx->height);
         auto_destroy_output.set_codec_context(encoder_ctx);
 
         // create video stream
@@ -144,7 +142,7 @@ namespace stream_project
             return -1;
         }        
         std::cout << "encoder_ctx->timebase(before open): " << encoder_ctx->time_base.num << "/" << encoder_ctx->time_base.den << std::endl;
-        ret = avcodec_open2(encoder_ctx, encoder, NULL);
+        ret = avcodec_open2(encoder_ctx, encoder, &opts_);
         if (ret < 0)
         {
             std::cerr << term_color::red << "Failed to open encoder" << term_color::reset << std::endl;
@@ -196,6 +194,7 @@ namespace stream_project
 
 
         AVFilterGraph *filter_graph = avfilter_graph_alloc();
+        filter_graph->nb_threads  = 8;
         auto_destroy_input.set_filter_graph(filter_graph);
         AVFilterContext *buffersrc_ctx = nullptr;
         AVFilterContext *buffersink_ctx = nullptr;
@@ -213,14 +212,14 @@ namespace stream_project
         std::cout << "args: " << args << std::endl;
 
         ret = avfilter_graph_create_filter(&buffersrc_ctx, avfilter_get_by_name("buffer"),
-                                    "in", args, nullptr, filter_graph);
+                                    "test_in", args, nullptr, filter_graph);
         if (ret < 0)
         {
             std::cerr << term_color::red << "Failed to create buffer source filter" << term_color::reset << std::endl;
             return ret;
         }
         ret = avfilter_graph_create_filter(&buffersink_ctx, avfilter_get_by_name("buffersink"),
-                                    "out", nullptr, nullptr, filter_graph);
+                                    "test_out", nullptr, nullptr, filter_graph);
         if (ret < 0)    
         {
             std::cerr << term_color::red << "Failed to create buffer sink filter" << term_color::reset << std::endl;
@@ -263,24 +262,25 @@ namespace stream_project
         AVFrame *filt_frame = av_frame_alloc();
         auto_destroy_output.set_frame(filt_frame);
 
+        int frame_index = 0;
         while (av_read_frame(fmt_ctx, pkt) >= 0) 
         {
             if (pkt->stream_index == video_stream_index) 
             {
                 if (avcodec_send_packet(dec_ctx, pkt) == 0) 
-                {                        
+                {               
+                    std::cout << "avcodec_send_packet success" << std::endl;
                     while (avcodec_receive_frame(dec_ctx, frame) >= 0) 
                     {
-                        //std::cout << "1 frame->linesize[0] = " << frame->linesize[0] << std::endl;
-
+                        //std::cout << "avcodec_receive_frame success" << std::endl;
                         // 送入滤镜
                         ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
                         if (ret < 0)
                         {
                             std::cerr << term_color::red << "Failed to add frame to buffer source" << term_color::reset << std::endl;
                             return ret;
-                        }                        
-                        //std::cout << "2 frame->linesize[0] = " << frame->linesize[0] << std::endl;
+                        }   
+                        //std::cout << "av_buffersrc_add_frame_flags success" << std::endl;
 
                         // 取出处理后帧
                         while (av_buffersink_get_frame(buffersink_ctx, filt_frame) >= 0) 
@@ -288,13 +288,24 @@ namespace stream_project
                             //std::cout << "filter width: " << filt_frame->width << std::endl;
                             //std::cout << "filt_frame->linesize[0] = " << filt_frame->linesize[0] << std::endl;
 
+                            //std::cout << "av_buffersink_get_frame success" << std::endl;
+
                             filt_frame->pts = av_rescale_q(filt_frame->pts,
                                             in_video_stream->time_base,
                                             encoder_ctx->time_base);
                                 
-                            avcodec_send_frame(encoder_ctx, filt_frame);
-                            while (avcodec_receive_packet(encoder_ctx, filt_pkt) == 0) {
+                            ret = avcodec_send_frame(encoder_ctx, filt_frame);
+                            if (ret < 0)
+                            {
+                                std::cerr << term_color::red << "Failed to send frame to encoder" << term_color::reset << std::endl;
+                                return ret;
+                            }
+                            //std::cout << "avcodec_send_frame filt_frame success" << std::endl;
+
+                            while (avcodec_receive_packet(encoder_ctx, filt_pkt) == 0) 
+                            {
                                 filt_pkt->stream_index = out_stream->index;
+                                //std::cout << "write frame, stream index: " << frame_index++ << std::endl;
                                 av_interleaved_write_frame(output_fmt_ctx, filt_pkt);
                                 av_packet_unref(filt_pkt);
                             }
