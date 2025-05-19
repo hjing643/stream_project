@@ -23,5 +23,7 @@ extern "C" {
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersrc.h>
 #include <libavfilter/buffersink.h>
-//#include <libavfilter/avfiltergraph.h>
-}
+#include <libswresample/swresample.h>
+#include <libavutil/audio_fifo.h>
+//#include <libavfilter/avfiltergraph.h>    
+}   

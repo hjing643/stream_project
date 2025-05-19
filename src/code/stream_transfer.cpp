@@ -46,6 +46,16 @@ namespace stream_project
                 sws_freeContext(sws_ctx_);
                 sws_ctx_ = NULL;
             }
+            if (swr_ctx_ != NULL)
+            {
+                swr_free(&swr_ctx_);
+                swr_ctx_ = NULL;
+            }
+            if (audio_fifo_ != NULL)
+            {
+                av_audio_fifo_free(audio_fifo_);
+                audio_fifo_ = NULL;
+            }
         }
         // type 0: open iput, 1:alloc_output
         void set_fmt_ctx(AVFormatContext* ptr_in, int type)
@@ -69,6 +79,14 @@ namespace stream_project
         {
             sws_ctx_ = ptr_in;
         }
+        void set_swr_ctx(SwrContext* ptr_in)
+        {
+            swr_ctx_ = ptr_in;
+        }
+        void set_audio_fifo(AVAudioFifo* ptr_in)
+        {
+            audio_fifo_ = ptr_in;
+        }
     private:
         AVFormatContext* fmt_ctx_ = NULL; 
         int fmt_type_ = 0; //0 input, 1 output 
@@ -76,6 +94,8 @@ namespace stream_project
         AVPacket* packet_= NULL; 
         AVFrame* frame_= NULL; 
         SwsContext* sws_ctx_ = NULL;
+        SwrContext* swr_ctx_ = NULL;
+        AVAudioFifo* audio_fifo_ = NULL;
     };
 
     // stream_type: 0 video
@@ -494,16 +514,10 @@ namespace stream_project
                 AVCodecContext* codec_ctx = CFFmpegHelper::create_video_decodec_context(fmt_ctx->streams[video_stream_index], true);
                 if (!codec_ctx)
                 {
-                    std::cout << term_color::red << "create_video_encodec_context failed" << term_color::reset << std::endl;
+                    std::cout << term_color::red << "create_video_decodec_context failed" << term_color::reset << std::endl;
                     break;
                 }
                 auto_destroy.set_codec_context(codec_ctx);
-
-                if (!codec_ctx)
-                {
-                    std::cout << term_color::red << "create_video_encodec_context failed" << term_color::reset << std::endl;
-                    break;
-                }
 
                 AVPacket* pkt = av_packet_alloc();
                 AVFrame* frame = av_frame_alloc();
@@ -934,7 +948,9 @@ namespace stream_project
             return -1;
         }
         // encoder
-        AVCodecContext* encoder_ctx = CFFmpegHelper::create_video_encodec_context(input_fmt_ctx->streams[video_stream_index], false);
+        AVCodecContext* encoder_ctx = CFFmpegHelper::create_video_encodec_context(input_fmt_ctx->streams[video_stream_index], 
+                                                                                input_fmt_ctx->streams[video_stream_index]->codecpar->codec_id, 
+                                                                                false);
         auto_destroy_output.set_codec_context(encoder_ctx);
         // width/height自己设置
         encoder_ctx->width = target_width;
@@ -969,7 +985,6 @@ namespace stream_project
             std::cerr << term_color::red << "Failed to create new video stream" << term_color::reset << std::endl;
             return -1;
         }
-
 
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
         {
@@ -1151,12 +1166,16 @@ namespace stream_project
         std::cout << "change_fps finished " << out << std::endl;
         return 1;
     }
+
     int CStreamTransfer::format_A_to_B1(const std::string& out, const std::string& video_path, const std::string& src_fmt, const std::string& dst_fmt, AVCodecID dst_codec_id)
     {
         init();
         bool enable_b_frame = false;
+        bool enable_audio = false;
         CAutoDestroyStreamTransfer auto_destroy_input;
         CAutoDestroyStreamTransfer auto_destroy_output;
+        CAutoDestroyStreamTransfer auto_destroy_audio_input;
+        CAutoDestroyStreamTransfer auto_destroy_audio_output;
 
         AVFormatContext* input_fmt_ctx = NULL;
         int ret = 0;
@@ -1185,15 +1204,19 @@ namespace stream_project
 
         int video_stream_index = CFFmpegHelper::get_video_stream_index(input_fmt_ctx);
         int audio_stream_index = CFFmpegHelper::get_audio_stream_index(input_fmt_ctx);
+        if (audio_stream_index < 0)
+        {
+            enable_audio = false;
+        }
 
         if (video_stream_index < 0) 
         {
             std::cerr << term_color::red << "No video stream found\n" << term_color::reset;
             return -1;
         }
-
+        auto video_stream = input_fmt_ctx->streams[video_stream_index];
         // --- 创建解码器 ---
-        AVCodecContext* video_dec_ctx = CFFmpegHelper::create_video_decodec_context(input_fmt_ctx->streams[video_stream_index], true);
+        AVCodecContext* video_dec_ctx = CFFmpegHelper::create_video_decodec_context(video_stream, true);
         if (!video_dec_ctx)
         {
             std::cerr << term_color::red << "Failed to create video decodec context" << term_color::reset << std::endl;
@@ -1229,45 +1252,109 @@ namespace stream_project
             std::cerr << term_color::red << "Unsupported video codec" << term_color::reset << dst_codec_id << std::endl;
             return -1;
         }
-        AVCodecContext* video_enc_ctx = avcodec_alloc_context3(video_encoder);
+        AVCodecContext* video_enc_ctx = CFFmpegHelper::create_video_encodec_context(video_stream, dst_codec_id, false);
+        if (!video_enc_ctx)
+        {
+            std::cerr << term_color::red << "Failed to create video encodec context" << term_color::reset << std::endl;
+            return -1;
+        }
         auto_destroy_output.set_codec_context(video_enc_ctx);
 
-        video_enc_ctx->height = video_dec_ctx->height;
-        video_enc_ctx->width = video_dec_ctx->width;
-        video_enc_ctx->sample_aspect_ratio = video_dec_ctx->sample_aspect_ratio;
-        video_enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P; // some fmt not support in h264
-        if (video_dec_ctx->bit_rate > 0)
+        AVStream* out_video_stream = CFFmpegHelper::create_new_video_stream(video_enc_ctx, output_fmt_ctx, dst_codec_id);
+        if (!out_video_stream)
         {
-            video_enc_ctx->bit_rate = video_dec_ctx->bit_rate;
+            std::cerr << term_color::red << "Failed to create new video stream" << term_color::reset << std::endl;
+            return -1;
         }
-        else
-        {
-            video_enc_ctx->bit_rate = 4*1024*1024;  // 高清（1080p）较常用
-        }
-                
-        video_enc_ctx->time_base = AVRational{1, 25};
-        video_enc_ctx->framerate = AVRational{25, 1};
-        video_enc_ctx->gop_size = 50; // 50
-        video_enc_ctx->level = 31;  // Level 3.1
+        //std::cout << "video_enc_ctx->time_base: " << video_enc_ctx->time_base.num << "/" << video_enc_ctx->time_base.den << std::endl;
+        //std::cout << "video_enc_ctx->framerate: " << video_enc_ctx->framerate.num << "/" << video_enc_ctx->framerate.den << std::endl;
+        //std::cout << "video_enc_ctx->bit_rate: " << video_enc_ctx->bit_rate << std::endl;
+        //video_enc_ctx->time_base = AVRational{1, 25};
+        //video_enc_ctx->framerate = AVRational{25, 1};
+        video_enc_ctx->gop_size = 50; // 25
+        video_enc_ctx->level = 40;  // Level 3.1
         if(!enable_b_frame)
         {
             video_enc_ctx->max_b_frames = 0;
         }
-
-        ///std::cout << "video_enc_ctx->time_base:" << video_enc_ctx->time_base.num << "/" << video_enc_ctx->time_base.den << std::endl;
-        // std::cout << "video_enc_ctx->framerate:" << video_enc_ctx->framerate.num << "/" << video_enc_ctx->framerate.den << std::endl;
-        //std::cout << "video_enc_ctx->gop_size:" << video_enc_ctx->gop_size << std::endl;
-
         avcodec_open2(video_enc_ctx, video_encoder, NULL);
 
-        AVStream* out_video_stream = avformat_new_stream(output_fmt_ctx, video_encoder);
-        avcodec_parameters_from_context(out_video_stream->codecpar, video_enc_ctx);
-        out_video_stream->time_base = video_enc_ctx->time_base;
-        out_video_stream->avg_frame_rate = video_enc_ctx->framerate;
-        out_video_stream->r_frame_rate = video_enc_ctx->framerate;
+        AVCodecContext *dec_a_ctx = NULL;
+        AVCodecContext *enc_a_ctx = NULL;
+        struct SwrContext* swr_ctx_audio = NULL;
+        AVStream *out_a_stream = NULL;
+        // audio stream
+        if (enable_audio && audio_stream_index >= 0)
+        {               
+            AVStream *in_a_stream = input_fmt_ctx->streams[audio_stream_index];
+            dec_a_ctx = CFFmpegHelper::create_audio_decodec_context(in_a_stream, true);
+            if (!dec_a_ctx)
+            {
+                std::cerr << term_color::red << "Failed to create audio decodec context" << term_color::reset << std::endl;
+                return -1;
+            }
+            auto_destroy_audio_input.set_codec_context(dec_a_ctx);
 
-        //std::cout << "out_video_stream->time_base:" 
-        //<< out_video_stream->time_base.num << "/" << out_video_stream->time_base.den << std::endl;
+            enc_a_ctx = CFFmpegHelper::create_audio_encodec_context(in_a_stream, AV_CODEC_ID_AAC, false);
+            if (!enc_a_ctx)
+            {
+                std::cerr << term_color::red << "Failed to create audio encodec context" << term_color::reset << std::endl;
+                return -1;
+            }
+            out_a_stream = CFFmpegHelper::create_new_audio_stream(enc_a_ctx, output_fmt_ctx, AV_CODEC_ID_AAC);
+            if (!out_a_stream)
+            {
+                std::cerr << term_color::red << "Failed to create new audio stream" << term_color::reset << std::endl;
+                return -1;
+            }
+
+            auto_destroy_audio_output.set_codec_context(enc_a_ctx);
+            const AVCodec *enc_a = avcodec_find_encoder(AV_CODEC_ID_AAC);
+            ret = avcodec_open2(enc_a_ctx, enc_a, nullptr);
+            if (ret < 0)
+            {
+                printf_ffmepg_error(ret, "avcodec_open2");
+                return -1;
+            }
+            else
+            {
+                std::cout<< "avcodec_open2 audio success" << std::endl;
+                std::cout << "enc_a_ctx->frame_size: " << enc_a_ctx->frame_size << std::endl;
+            }
+
+            AVCodecParameters *in_par = in_a_stream->codecpar;
+            // 4. 创建重采样上下文：从输入的 Opus 配置 转到 AAC 要求的配置
+            // 输出通道布局
+            AVChannelLayout out_ch_layout;
+            av_channel_layout_default(&out_ch_layout, enc_a_ctx->ch_layout.nb_channels);
+
+            // 输入通道布局
+            AVChannelLayout in_ch_layout;
+            av_channel_layout_default(&in_ch_layout, dec_a_ctx->ch_layout.nb_channels);  // 或者从解码器 AVCodecContext 拿
+
+            // 设置 swr context
+            ret = swr_alloc_set_opts2(
+                &swr_ctx_audio,
+                &out_ch_layout, enc_a_ctx->sample_fmt, enc_a_ctx->sample_rate,
+                &in_ch_layout,  dec_a_ctx->sample_fmt, dec_a_ctx->sample_rate,
+                0, nullptr);
+            if (ret < 0)
+            {
+                printf_ffmepg_error(ret, "swr_alloc_set_opts2");
+                return -1;
+            }
+            if (swr_init(swr_ctx_audio) < 0) 
+            {
+                std::cerr << term_color::red << "swr_init failed" << term_color::reset << std::endl;
+                return -1;
+            }
+            else
+            {
+                std::cout<< "swr_init success" << std::endl;
+            }
+            auto_destroy_audio_output.set_swr_ctx(swr_ctx_audio);
+            std::cout<< "include audio,swr_ctx_audio: "<< swr_ctx_audio << std::endl;
+        }
 
         // 设置输出文件
         if (!(output_fmt_ctx->oformat->flags & AVFMT_NOFILE)) 
@@ -1307,15 +1394,30 @@ namespace stream_project
             video_enc_ctx->width, video_enc_ctx->height, video_enc_ctx->pix_fmt,
             SWS_BICUBIC, NULL, NULL, NULL
         );
+
         auto_destroy_output.set_sws_ctx(sws_ctx);
 
-        int frame_index = 0;
+        int video_frame_index = 0;
+        int audio_frame_index = 0;
+        AVAudioFifo* audio_fifo = nullptr;
+        if (enable_audio)
+        {
+            audio_fifo = av_audio_fifo_alloc(enc_a_ctx->sample_fmt, enc_a_ctx->ch_layout.nb_channels, 1024 * 10);
+            auto_destroy_audio_output.set_audio_fifo(audio_fifo);
+            if (!audio_fifo) 
+            {
+                std::cerr << term_color::red << "Failed to allocate AVAudioFifo" << term_color::reset << std::endl;
+                return -1;
+            }
+        }
+
         while (av_read_frame(input_fmt_ctx, input_packet) >= 0) 
         {
             if (input_packet->stream_index == video_stream_index) 
             {
                 ret = avcodec_send_packet(video_dec_ctx, input_packet);
-                if (ret < 0) {
+                if (ret < 0) 
+                {
                     printf_ffmepg_error(ret, "avcodec_send_packet");
                     // 根据情况判断是不是 continue 还是直接 break
                     continue;
@@ -1333,8 +1435,9 @@ namespace stream_project
                             input_frame->data, input_frame->linesize, 0, input_frame->height,
                             output_frame->data, output_frame->linesize);
 
-                    output_frame->pts = frame_index++;
-                    
+                    output_frame->pts = video_frame_index++;
+                    //output_frame->pts = video_frame_index * (video_enc_ctx->time_base.den / video_enc_ctx->framerate.num);
+
                     // send frame to encoder,start encoding
                     avcodec_send_frame(video_enc_ctx, output_frame);
                     
@@ -1355,6 +1458,76 @@ namespace stream_project
                     av_frame_unref(input_frame);
                 }
             }
+            else if (input_packet->stream_index == audio_stream_index && enable_audio)
+            {
+                ret = avcodec_send_packet(dec_a_ctx, input_packet);
+                if (ret < 0)
+                {
+                    printf_ffmepg_error(ret, "avcodec_send_packet");
+                    continue;
+                }
+                
+                while (avcodec_receive_frame(dec_a_ctx, input_frame) >= 0)
+                {
+                    input_frame->pts = av_rescale_q(input_packet->pts, 
+                        input_fmt_ctx->streams[audio_stream_index]->time_base, 
+                        dec_a_ctx->time_base);
+
+                    uint8_t **converted_data = nullptr;
+                    int converted_samples = av_rescale_rnd(
+                        swr_get_delay(swr_ctx_audio, input_frame->sample_rate) + input_frame->nb_samples,
+                        enc_a_ctx->sample_rate, input_frame->sample_rate, AV_ROUND_UP);
+
+                    av_samples_alloc_array_and_samples(&converted_data, nullptr,
+                        enc_a_ctx->ch_layout.nb_channels, converted_samples, enc_a_ctx->sample_fmt, 0);
+
+                    av_channel_layout_copy(&output_frame->ch_layout, &enc_a_ctx->ch_layout);    
+
+                    ret = swr_convert(swr_ctx_audio,
+                                converted_data, converted_samples,
+                                 (const uint8_t **)input_frame->data, input_frame->nb_samples);
+
+
+                    if (ret < 0) 
+                    {
+                        printf_ffmepg_error(ret, "swr_convert");
+                        av_freep(&converted_data[0]);
+                        av_freep(&converted_data);
+                        continue;
+                    }
+                    av_audio_fifo_write(audio_fifo, (void **)converted_data, ret);
+                    av_freep(&converted_data[0]);
+                    av_freep(&converted_data);
+
+
+                    // 如果 FIFO 中有足够样本数，开始编码
+                    while (av_audio_fifo_size(audio_fifo) >= enc_a_ctx->frame_size) 
+                    {
+                        output_frame->nb_samples = enc_a_ctx->frame_size;
+                        av_channel_layout_copy(&output_frame->ch_layout, &enc_a_ctx->ch_layout);
+                        output_frame->format = enc_a_ctx->sample_fmt;
+                        output_frame->sample_rate = enc_a_ctx->sample_rate;
+
+                        av_frame_get_buffer(output_frame, 0);
+
+                        av_audio_fifo_read(audio_fifo, (void **)output_frame->data, enc_a_ctx->frame_size);
+
+                        output_frame->pts = audio_frame_index;
+                        audio_frame_index += output_frame->nb_samples;
+
+                        avcodec_send_frame(enc_a_ctx, output_frame);
+                        while (avcodec_receive_packet(enc_a_ctx, output_packet) == 0)
+                        {
+                            output_packet->stream_index = out_a_stream->index;
+                            av_packet_rescale_ts(output_packet, enc_a_ctx->time_base, out_a_stream->time_base);
+                            av_interleaved_write_frame(output_fmt_ctx, output_packet);
+                            av_packet_unref(output_packet);
+                        }
+                    }
+                    av_frame_unref(output_frame); // 清除旧的
+                    av_frame_unref(input_frame);
+                }
+            }
             av_packet_unref(input_packet);
         }
 
@@ -1370,7 +1543,7 @@ namespace stream_project
                         input_frame->data, input_frame->linesize, 0, input_frame->height,
                         output_frame->data, output_frame->linesize);
 
-            output_frame->pts = frame_index++;
+            output_frame->pts = video_frame_index++;
 
             avcodec_send_frame(video_enc_ctx, output_frame);
 
@@ -1402,7 +1575,6 @@ namespace stream_project
             av_interleaved_write_frame(output_fmt_ctx, output_packet);
             av_packet_unref(output_packet);
         }
-
         av_write_trailer(output_fmt_ctx);
 
         std::cout << "format_A_to_B1 finished " << out << std::endl;

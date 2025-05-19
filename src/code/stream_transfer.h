@@ -56,6 +56,13 @@ namespace stream_project
             int cut_video(const std::string& out, const std::string& video_path, int start_time, int end_time);
             int remove_audio(const std::string& out, const std::string& video_path);
         private:
+            int init_audio_transcoder(AVCodecContext *dec_a_ctx,
+                            AVCodecContext *enc_a_ctx,
+                            AVStream *out_a_stream,
+                            AVFormatContext *ifmt_ctx,
+                            AVFormatContext *ofmt_ctx,
+                            int aud_in_idx);
+        private:
             bool is_init_ = false;
 
             //std::atomic<bool> is_init_ = false;

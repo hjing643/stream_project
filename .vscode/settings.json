@@ -69,6 +69,8 @@
         "format": "cpp",
         "span": "cpp",
         "typeindex": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "any": "cpp",
+        "list": "cpp"
     }
 }

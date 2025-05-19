@@ -125,7 +125,9 @@ namespace stream_project
         auto_destroy_input.set_codec_context(dec_ctx);
 
         // create encoder context
-        AVCodecContext* encoder_ctx = CFFmpegHelper::create_video_encodec_context(in_video_stream, false);
+        AVCodecContext* encoder_ctx = CFFmpegHelper::create_video_encodec_context(in_video_stream, 
+                                        in_video_stream->codecpar->codec_id, 
+                                        false);
         //encoder_ctx->width = 1280;
         //encoder_ctx->height = 720;
         std::cout << "encoder_ctx->width: " << encoder_ctx->width << std::endl;
