@@ -8,6 +8,7 @@ namespace stream_project
         public:
             int init();
             int compress_png(const std::string &dst_path, const std::string &src_path);
+            int png_to_jpg(const std::string &dst_path, const std::string &src_path);
             int display_video();
             int display_audio();
             int display_text();

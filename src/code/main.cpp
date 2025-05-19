@@ -255,7 +255,31 @@ int main(int argc, char* argv[])
     }
     else if (file_type == 3)
     {
-        stream_display.compress_png("../output/i.png", "../fileDepends/images/i.png");
+        std::cout << "function type:"
+            << "\n0-compress_png"
+            << "\n1-png_to_jpg"
+            << std::endl;
+        int function_type = 0;
+        std::cin >> function_type;
+        switch (function_type)
+        {
+            case 0:
+                if (file_output.empty())
+                {
+                    file_output = "../output/i_compress.png";      
+                }
+                stream_display.compress_png(file_output, fullPath);
+                break;
+            case 1:
+                if (file_output.empty())
+                {
+                    file_output = "../output/i_compress.jpg";      
+                }
+                stream_display.png_to_jpg(file_output, fullPath);
+                break;
+            default:
+                break;
+        }
     }
     return 0;
 }

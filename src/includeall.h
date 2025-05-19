@@ -4,6 +4,7 @@
 #include<map>
 #include <fstream>
 #include <vector>
+#include <optional>
 //#include<atomic> // my company linux and g++ is too old
 
 #include <libheif/heif.h>

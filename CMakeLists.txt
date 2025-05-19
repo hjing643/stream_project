@@ -4,6 +4,9 @@ cmake_minimum_required(VERSION 2.8)
 #set project name
 project(stream_project)
 
+# gtest_discover_tests() can find it
+enable_testing()
+
 # set c++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)   
@@ -63,6 +66,8 @@ target_link_libraries(stream_program PRIVATE
   z
   stdc++
 )
+
+add_subdirectory(tests)
 
 
 message("Library path: ${CMAKE_SOURCE_DIR}/lib")

@@ -32,6 +32,27 @@ namespace stream_project
         std::cout << "Compress image: " << dst_path << " success" << std::endl;
         return 1;
     }
+    int CStreamDisplay::png_to_jpg(const std::string &dst_path, const std::string &src_path)
+    {
+        if (src_path.empty())
+        {
+            std::cout << "Failed to load image: " << src_path << std::endl;
+            return -1;
+        }
+        cv::Mat src_img = cv::imread(src_path);
+        if (src_img.empty())
+        {
+            std::cout << "Failed to load image: " << src_path << std::endl;
+            return -1;
+        }
+        if (!cv::imwrite(dst_path, src_img, {cv::IMWRITE_JPEG_QUALITY, 100}))
+        {
+            std::cout << "Failed to write image: " << dst_path << std::endl;
+            return -1;
+        }
+        std::cout << "Convert image: " << dst_path << " success" << std::endl;
+        return 1;
+    }
     int CStreamDisplay::display_video()
     {
         return 1;
