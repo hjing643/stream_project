@@ -9,20 +9,15 @@
 #include "test.h"
 int main(int argc, char* argv[])
 {
-
     test::CTest test;
     test.test();
 
     if (argc < 2)
     {
-        std::cout << "please input file name" <<std::endl;
-        return -1;
+        //std::cout << "please input file name" <<std::endl;
+        //return -1;
     }
-    std::string file_output;
-    if(argc > 2)
-    {
-        file_output = argv[2];
-    }
+   
     stream_project::CStreamTransfer stream_transfer;
     stream_project::CRawStreamRead read_stream;
     stream_project::CHeicStreamRead heic_stream_read;
@@ -30,7 +25,17 @@ int main(int argc, char* argv[])
     stream_project::CStreamFilterGraph stream_filter_graph;
     stream_project::CStreamDisplay stream_display;
 
-    std::string fullPath = argv[1];
+    std::string fullPath;
+    std::string file_output;
+
+    if(argc > 1)
+    {
+        fullPath = argv[1];
+    }
+     if(argc > 2)
+    {
+        file_output = argv[2];
+    }
 
     std::cout <<"filetype:" 
         << "\ntest_all:0"
@@ -45,8 +50,9 @@ int main(int argc, char* argv[])
     if (file_type == 4)
     {
         //stream_filter_graph.scale_video("/home/gene/mnt-231-ubunto/output/filter_graph.mp4", "../fileDepends/videos/person1.mp4");
-        picture_transfer.transfer_raw_to_picture("../output/i.yuv", 
-        AV_PIX_FMT_YUV420P, 3840, 2160, "../output/i.png", AV_CODEC_ID_PNG);
+        fullPath = "../fileDepends/videos/youtube1.webm";
+        file_output = "/home/gene/mnt-231-ubunto/1.mp4";      
+        stream_transfer.format_webm_to_mp4(file_output, fullPath);
     }
     else if (file_type == 0)
     {
@@ -198,7 +204,7 @@ int main(int argc, char* argv[])
                 {
                     file_output = "../output/cut_video.mp4";
                 }
-                stream_transfer.cut_video(file_output, fullPath, 10, 20);
+                stream_transfer.cut_video(file_output, fullPath, 0, 20);
             }
                 break;
             case 12:

@@ -133,6 +133,7 @@ namespace stream_project
         }
         avcodec_parameters_from_context(out_stream->codecpar, encoder_ctx);
         out_stream->time_base = (AVRational){1, 48000};
+        out_stream->codecpar->sample_rate = 48000;
         // 设置编码器参数（48kHz, 立体声, FLTP）
         return out_stream;
     }
@@ -157,6 +158,7 @@ namespace stream_project
         std::cout <<"create_new_video_stream" << std::endl;
         std::cout << "out_stream->codecpar->codec_type:" << out_stream->codecpar->codec_type << std::endl;
         std::cout << "encoder_ctx->codec_type:" << encoder_ctx->codec_type << std::endl;
+        std::cout << "encoder_ctx->time_base:" << encoder_ctx->time_base.num << "/" << encoder_ctx->time_base.den << std::endl;
         out_stream->time_base = encoder_ctx->time_base; //should be correct, otherwise the video and audio will not be synchronized
         out_stream->r_frame_rate = encoder_ctx->framerate;
         out_stream->avg_frame_rate = encoder_ctx->framerate;
@@ -219,8 +221,13 @@ namespace stream_project
                     out_stream->codecpar->codec_tag = av_codec_get_tag(output_fmt_ctx->oformat->codec_tag, out_stream->codecpar->codec_id);
                     if (out_stream->codecpar->codec_tag == 0) 
                     {
+                        // webm not support codec tag, it's only support in mp4, avi, mov, etc.
                         std::cerr << term_color::red << "Could not find codec tag for codec id " << out_stream->codecpar->codec_id << term_color::reset << "\n";
-                        return nullptr;
+                    }
+                    else
+                    {
+                        std::cout << term_color::green << "find codec tag from id " << out_stream->codecpar->codec_id
+                         << " to " << out_stream->codecpar->codec_tag << term_color::reset << "\n";
                     }
                 }
                 return out_stream;
@@ -250,19 +257,13 @@ namespace stream_project
             return nullptr;
         }
         avcodec_parameters_to_context(codec_ctx, video_stream->codecpar);
+
         // video_stream->codecpar is vp9, so set codec_id to h264
         codec_ctx->codec_id = video_encoder->id;
         codec_ctx->codec_type = video_encoder->type;
         codec_ctx->thread_count = 0;
         codec_ctx->thread_type = FF_THREAD_FRAME;
-        if (video_stream->time_base.num > 0 && video_stream->time_base.den > 0)
-        {
-            codec_ctx->time_base = video_stream->time_base;
-        }
-        else
-        {
-            codec_ctx->time_base = AVRational{1, 25}; // 默认25fps
-        }
+        
         if (video_stream->r_frame_rate.num > 0 && video_stream->r_frame_rate.den > 0)
         {
             codec_ctx->framerate = video_stream->r_frame_rate;
@@ -271,14 +272,24 @@ namespace stream_project
         {
             codec_ctx->framerate = AVRational{25, 1}; // 默认25fps
         }
-
+        if (video_stream->time_base.num > 0 && video_stream->time_base.den > 0)
+        {
+            codec_ctx->time_base = video_stream->time_base;
+        }
+        else
+        {
+            codec_ctx->time_base = AVRational{1, codec_ctx->framerate.den};
+        }
         if (video_stream->codecpar->bit_rate <= 0)
         {
             // if avcodec_parameters_to_context, bit_rate is 0, so set to 4M
-            codec_ctx->bit_rate = 4*1024*1024;  // 高清（1080p）较常用
+            codec_ctx->bit_rate = estimate_bitrate(video_stream->codecpar->width, video_stream->codecpar->height, video_stream->r_frame_rate.num);  // 高清（1080p）较常用
+            //std::cout << "estimate_bitrate: " << codec_ctx->bit_rate << std::endl;
+            codec_ctx->bit_rate = 4*1024*1024;
         }
         codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P; // some fmt not support in h264
-
+        codec_ctx->gop_size = 25.; // 25
+        codec_ctx->level = 51;  // Level 5.1
         if (open_codec)
         {
             avcodec_open2(codec_ctx, video_encoder, NULL);
@@ -337,6 +348,7 @@ namespace stream_project
 
     AVCodecContext* CFFmpegHelper::create_audio_encodec_context(const AVStream* const audio_stream, AVCodecID codec_id, bool open_codec)
     {
+        std::cout<< "create_audio_encodec_context" << std::endl;
         if (!audio_stream)
         {
             std::cerr << term_color::red << "audio_stream is nullptr" << term_color::reset << std::endl;
@@ -359,7 +371,13 @@ namespace stream_project
         avcodec_parameters_to_context(codec_ctx, in_par);
         codec_ctx->codec_id = enc_a->id;
         codec_ctx->codec_type = enc_a->type;
+        if(enc_a->id == AV_CODEC_ID_AAC)
+        {
+            codec_ctx->frame_size = 1024;
+        }
         
+        std::cout<< "audio_stream->time_base.den: " << audio_stream->time_base.den << std::endl;
+        std::cout<< "audio_stream->time_base.num: " << audio_stream->time_base.num << std::endl;
         if (audio_stream->time_base.num > 0 && audio_stream->time_base.den > 0)
         {
             codec_ctx->time_base = audio_stream->time_base;
@@ -368,10 +386,15 @@ namespace stream_project
         {
             codec_ctx->time_base = AVRational{1, 48000}; // 默认25fps
         }
+                    
+        codec_ctx->time_base = AVRational{1, 48000}; // 默认25fps
         if(codec_ctx->sample_rate <= 0)
         {
             codec_ctx->sample_rate = 48000;
         }
+        
+        codec_ctx->sample_rate = 48000;
+
         if (open_codec)
         {
             avcodec_open2(codec_ctx, enc_a, nullptr);
@@ -408,8 +431,11 @@ namespace stream_project
         }
         else
         {
-            dec_a_ctx->time_base = AVRational{1, 25}; // 默认25fps
+            dec_a_ctx->time_base = AVRational{1, 48000}; // 默认25fps
         }
+                    
+        dec_a_ctx->time_base = AVRational{1, 48000}; // 默认25fps
+
         if(dec_a_ctx->sample_rate <= 0)
         {
             dec_a_ctx->sample_rate = 48000;

@@ -1,0 +1,28 @@
+// .vscode/tasks.json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start gdbserver",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/build && gdbserver localhost:1234 ./stream_program",
+      "isBackground": true,                 // ← 关键：声明这是个后台长驻任务
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": [
+          {
+            "regexp": "Listening on port 1234",  // ← 等待这个输出
+            "file": 1,
+            "location": 2,
+            "message": 3
+          }
+        ],
+        "background": {
+          "activeOnStart": true,                // 任务启动即认为“运行中”
+          "beginsPattern": "Listening on port 1234",
+          "endsPattern": ""                     // 不需要显式结束标记
+        }
+      }
+    }
+  ]
+}

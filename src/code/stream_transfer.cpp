@@ -1266,19 +1266,15 @@ namespace stream_project
             std::cerr << term_color::red << "Failed to create new video stream" << term_color::reset << std::endl;
             return -1;
         }
-        //std::cout << "video_enc_ctx->time_base: " << video_enc_ctx->time_base.num << "/" << video_enc_ctx->time_base.den << std::endl;
-        //std::cout << "video_enc_ctx->framerate: " << video_enc_ctx->framerate.num << "/" << video_enc_ctx->framerate.den << std::endl;
-        //std::cout << "video_enc_ctx->bit_rate: " << video_enc_ctx->bit_rate << std::endl;
-        //video_enc_ctx->time_base = AVRational{1, 25};
-        //video_enc_ctx->framerate = AVRational{25, 1};
-        video_enc_ctx->gop_size = 50; // 25
-        video_enc_ctx->level = 40;  // Level 3.1
+
+        
         if(!enable_b_frame)
         {
             video_enc_ctx->max_b_frames = 0;
         }
+     
         avcodec_open2(video_enc_ctx, video_encoder, NULL);
-
+      
         AVCodecContext *dec_a_ctx = NULL;
         AVCodecContext *enc_a_ctx = NULL;
         struct SwrContext* swr_ctx_audio = NULL;
@@ -1368,14 +1364,15 @@ namespace stream_project
             }
         }
         
-        // output_fmt_ctx modify to 1/16000, before is 1/1000
-        // 1/1000 is not a good choice
+        // out_video_stream modify to 1/16000, before is 1/1000
+        // video_enc_ctx time base is 1/1000, so we need to rescale the time base
         ret = avformat_write_header(output_fmt_ctx, NULL); 
         if (ret < 0)
         {
             printf_ffmepg_error(ret, "avformat_write_header");
             return -1;
         }
+
 
         AVPacket* input_packet = av_packet_alloc();
         auto_destroy_input.set_packet(input_packet);
@@ -1411,8 +1408,16 @@ namespace stream_project
             }
         }
 
+        AVRational enc_video_tb  = video_enc_ctx->time_base;      // {1,1000}
+        AVRational out_video_tb  = out_video_stream->time_base;     // {1,16000}
+        int transfer_frame_count = 0;
         while (av_read_frame(input_fmt_ctx, input_packet) >= 0) 
         {
+            transfer_frame_count++;
+            if (transfer_frame_count > 500)
+            {
+                break;
+            }
             if (input_packet->stream_index == video_stream_index) 
             {
                 ret = avcodec_send_packet(video_dec_ctx, input_packet);
@@ -1435,22 +1440,24 @@ namespace stream_project
                             input_frame->data, input_frame->linesize, 0, input_frame->height,
                             output_frame->data, output_frame->linesize);
 
-                    output_frame->pts = video_frame_index++;
-                    //output_frame->pts = video_frame_index * (video_enc_ctx->time_base.den / video_enc_ctx->framerate.num);
-
+                    //output_frame->pts = video_frame_index++;
+                    output_frame->pts = av_rescale_q(video_frame_index,
+                                 (AVRational){1, video_enc_ctx->framerate.num},
+                                 video_enc_ctx->time_base);
+                    ++video_frame_index;
                     // send frame to encoder,start encoding
                     avcodec_send_frame(video_enc_ctx, output_frame);
                     
                     // receive packet from encoder,end encoding
+                    
                     while (avcodec_receive_packet(video_enc_ctx, output_packet) == 0) 
                     {
+                       //std::cout << "before av_packet_rescale_ts output_packet->pts: " << output_packet->pts << std::endl;
+                        av_packet_rescale_ts(output_packet,
+                         enc_video_tb,
+                         out_video_tb);
                         output_packet->stream_index = out_video_stream->index;
-
-                        AVRational src_time_base = (AVRational){1, video_enc_ctx->framerate.num}; // 30fps -> 1/30
-                        AVRational dst_time_base = (AVRational){1, out_video_stream->time_base.den}; // 1/16000
-                        // set time base for packet
-                        av_packet_rescale_ts(output_packet, src_time_base, dst_time_base);
-                        
+                       
                         av_interleaved_write_frame(output_fmt_ctx, output_packet); 
                         av_packet_unref(output_packet);
                     }
@@ -1543,7 +1550,10 @@ namespace stream_project
                         input_frame->data, input_frame->linesize, 0, input_frame->height,
                         output_frame->data, output_frame->linesize);
 
-            output_frame->pts = video_frame_index++;
+            output_frame->pts = av_rescale_q(video_frame_index,
+                                            (AVRational){1, video_enc_ctx->framerate.num},
+                                            video_enc_ctx->time_base);
+            video_frame_index++;
 
             avcodec_send_frame(video_enc_ctx, output_frame);
 
@@ -1551,9 +1561,7 @@ namespace stream_project
             {
                 output_packet->stream_index = out_video_stream->index;
 
-                AVRational src_time_base = (AVRational){1, video_enc_ctx->framerate.num}; // 30fps -> 1/30
-                AVRational dst_time_base = (AVRational){1, out_video_stream->time_base.den}; // 1/16000
-                av_packet_rescale_ts(output_packet, src_time_base, dst_time_base);
+                av_packet_rescale_ts(output_packet, enc_video_tb, out_video_tb);
 
                 av_interleaved_write_frame(output_fmt_ctx, output_packet); 
                 av_packet_unref(output_packet);
@@ -1568,12 +1576,29 @@ namespace stream_project
         {
             output_packet->stream_index = out_video_stream->index;
 
-            AVRational src_time_base = (AVRational){1, video_enc_ctx->framerate.num}; // 30fps -> 1/30
-            AVRational dst_time_base = (AVRational){1, out_video_stream->time_base.den}; // 1/16000
-            av_packet_rescale_ts(output_packet, src_time_base, dst_time_base);
+            av_packet_rescale_ts(output_packet, enc_video_tb, out_video_tb);
 
             av_interleaved_write_frame(output_fmt_ctx, output_packet);
             av_packet_unref(output_packet);
+        }
+
+        // audio encoder flush
+        if (enable_audio && audio_stream_index >= 0)
+        {
+            avcodec_send_frame(enc_a_ctx, nullptr);
+
+            // 然后反复读取剩余的 packet
+            av_packet_unref(output_packet);
+            while (avcodec_receive_packet(enc_a_ctx, output_packet) == 0) 
+            {
+                // 记得做时间基转换并写出
+                av_packet_rescale_ts(output_packet,
+                                    enc_a_ctx->time_base,
+                                    out_a_stream->time_base);
+                output_packet->stream_index = out_a_stream->index;
+                av_interleaved_write_frame(output_fmt_ctx, output_packet);
+                av_packet_unref(output_packet);
+            }
         }
         av_write_trailer(output_fmt_ctx);
 

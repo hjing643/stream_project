@@ -25,5 +25,6 @@ extern "C" {
 #include <libavfilter/buffersink.h>
 #include <libswresample/swresample.h>
 #include <libavutil/audio_fifo.h>
+#include <libavutil/opt.h>
 //#include <libavfilter/avfiltergraph.h>    
 }   
